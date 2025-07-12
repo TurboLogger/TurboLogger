@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: turbologger-service
+  namespace: turbologger
+  labels:
+    app.kubernetes.io/name: turbologger
+    app.kubernetes.io/component: service
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: turbologger
+    app.kubernetes.io/component: application
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: turbologger-headless
+  namespace: turbologger
+  labels:
+    app.kubernetes.io/name: turbologger
+    app.kubernetes.io/component: headless-service
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: turbologger
+    app.kubernetes.io/component: application

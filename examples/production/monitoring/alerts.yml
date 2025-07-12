@@ -1,0 +1,160 @@
+groups:
+  - name: turbologger.alerts
+    rules:
+      # High error rate alert
+      - alert: TurboLoggerHighErrorRate
+        expr: rate(turbologger_logs_total{level="error"}[5m]) / rate(turbologger_logs_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          component: turbologger
+        annotations:
+          summary: "TurboLogger high error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for the last 5 minutes"
+          
+      # Critical error rate alert  
+      - alert: TurboLoggerCriticalErrorRate
+        expr: rate(turbologger_logs_total{level="error"}[5m]) / rate(turbologger_logs_total[5m]) > 0.15
+        for: 1m
+        labels:
+          severity: critical
+          component: turbologger
+        annotations:
+          summary: "TurboLogger critical error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for the last 5 minutes"
+          
+      # High memory usage
+      - alert: TurboLoggerHighMemoryUsage
+        expr: turbologger_memory_usage_bytes / turbologger_memory_limit_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          component: turbologger
+        annotations:
+          summary: "TurboLogger high memory usage"
+          description: "Memory usage is {{ $value | humanizePercentage }} of limit"
+          
+      # Buffer near capacity
+      - alert: TurboLoggerBufferNearCapacity
+        expr: turbologger_buffer_size / turbologger_buffer_capacity > 0.9
+        for: 2m
+        labels:
+          severity: warning
+          component: turbologger
+        annotations:
+          summary: "TurboLogger buffer near capacity"
+          description: "Buffer utilization is {{ $value | humanizePercentage }}"
+          
+      # Transport failures
+      - alert: TurboLoggerTransportFailures
+        expr: rate(turbologger_transport_errors_total[5m]) > 1
+        for: 3m
+        labels:
+          severity: warning
+          component: turbologger
+          transport: "{{ $labels.transport }}"
+        annotations:
+          summary: "TurboLogger transport failures detected"
+          description: "Transport {{ $labels.transport }} has {{ $value }} errors per second"
+          
+      # High transport latency
+      - alert: TurboLoggerHighTransportLatency
+        expr: turbologger_transport_latency_ms > 5000
+        for: 5m
+        labels:
+          severity: warning
+          component: turbologger
+          transport: "{{ $labels.transport }}"
+        annotations:
+          summary: "TurboLogger high transport latency"
+          description: "Transport {{ $labels.transport }} latency is {{ $value }}ms"
+          
+      # Low sampling rate
+      - alert: TurboLoggerLowSamplingRate
+        expr: turbologger_sampling_rate < 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: turbologger
+        annotations:
+          summary: "TurboLogger sampling rate is very low"
+          description: "Current sampling rate is {{ $value | humanizePercentage }}"
+          
+      # Instance down
+      - alert: TurboLoggerInstanceDown
+        expr: up{job="turbologger-app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: turbologger
+        annotations:
+          summary: "TurboLogger instance is down"
+          description: "TurboLogger instance {{ $labels.instance }} has been down for more than 1 minute"
+          
+      # Pattern anomaly detected
+      - alert: TurboLoggerAnomalyDetected
+        expr: increase(turbologger_anomalies_detected_total[1m]) > 5
+        for: 0m
+        labels:
+          severity: warning
+          component: turbologger
+        annotations:
+          summary: "TurboLogger anomaly detection triggered"
+          description: "{{ $value }} anomalies detected in the last minute"
+          
+      # High log rate
+      - alert: TurboLoggerHighLogRate
+        expr: rate(turbologger_logs_total[1m]) > 10000
+        for: 5m
+        labels:
+          severity: warning
+          component: turbologger
+        annotations:
+          summary: "TurboLogger experiencing high log rate"
+          description: "Log rate is {{ $value }} logs per second"
+          
+      # Queue backup
+      - alert: TurboLoggerQueueBackup
+        expr: turbologger_queue_size > 50000
+        for: 3m
+        labels:
+          severity: warning
+          component: turbologger
+        annotations:
+          summary: "TurboLogger queue backup detected"
+          description: "Queue size is {{ $value }} entries"
+
+  - name: turbologger.infrastructure
+    rules:
+      # High CPU usage
+      - alert: TurboLoggerHighCPU
+        expr: turbologger_cpu_usage_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: turbologger
+        annotations:
+          summary: "TurboLogger high CPU usage"
+          description: "CPU usage is {{ $value }}%"
+          
+      # Disk space low
+      - alert: TurboLoggerLowDiskSpace
+        expr: turbologger_disk_free_bytes / turbologger_disk_total_bytes < 0.1
+        for: 2m
+        labels:
+          severity: critical
+          component: turbologger
+        annotations:
+          summary: "TurboLogger low disk space"
+          description: "Only {{ $value | humanizePercentage }} disk space remaining"
+          
+      # Network connectivity issues
+      - alert: TurboLoggerNetworkIssues
+        expr: rate(turbologger_network_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          component: turbologger
+        annotations:
+          summary: "TurboLogger network connectivity issues"
+          description: "Network error rate is {{ $value }} errors per second"

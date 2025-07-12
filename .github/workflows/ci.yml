@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: [14.x, 16.x, 18.x, 20.x]
+        exclude:
+          # Skip some combinations to save CI time
+          - os: windows-latest
+            node-version: 14.x
+          - os: macos-latest
+            node-version: 14.x
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build
+      run: npm run build
+
+    - name: Run linter
+      run: npm run lint
+
+    - name: Run type checking
+      run: npm run typecheck
+
+    - name: Run tests
+      run: npm run test:coverage
+
+    - name: Upload coverage to Codecov
+      if: matrix.os == 'ubuntu-latest' && matrix.node-version == '20.x'
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/lcov.info
+        flags: unittests
+        name: codecov-umbrella
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run security audit
+      run: npm audit --production
+
+    - name: Run Snyk to check for vulnerabilities
+      uses: snyk/actions/node@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      continue-on-error: true
+
+  package-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build package
+      run: npm run build
+
+    - name: Pack package
+      run: npm pack
+
+    - name: Test package size
+      run: |
+        PACKAGE_SIZE=$(stat -c%s turbologger-*.tgz)
+        echo "Package size: $PACKAGE_SIZE bytes"
+        # Fail if package is larger than 5MB
+        if [ $PACKAGE_SIZE -gt 5242880 ]; then
+          echo "Package size exceeds 5MB limit!"
+          exit 1
+        fi
+
+    - name: Test package installation
+      run: |
+        mkdir test-install
+        cd test-install
+        npm init -y
+        npm install ../turbologger-*.tgz
+        # Test that package can be imported
+        node -e "const turbo = require('turbologger'); console.log('Package imported successfully');"
+
+  benchmark:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build
+      run: npm run build
+
+    - name: Run benchmarks
+      run: npm run benchmark
+
+    - name: Comment benchmark results
+      uses: actions/github-script@v6
+      if: github.event_name == 'pull_request'
+      with:
+        script: |
+          const fs = require('fs');
+          // This assumes benchmark results are written to a file
+          // Adjust based on actual benchmark output
+          const comment = '## Benchmark Results\n\nBenchmarks completed successfully.';
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });

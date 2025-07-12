@@ -1,0 +1,138 @@
+name: Publish to NPM
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.1)'
+        required: true
+        type: string
+      tag:
+        description: 'NPM dist-tag (latest, beta, next)'
+        required: true
+        default: 'latest'
+        type: choice
+        options:
+          - latest
+          - beta
+          - next
+          - canary
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        registry-url: 'https://registry.npmjs.org'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run tests
+      run: npm test
+
+    - name: Build package
+      run: npm run build
+
+    - name: Verify package
+      run: |
+        npm pack --dry-run
+        npm pack
+        
+        # Test installation
+        mkdir test-install
+        cd test-install
+        npm init -y
+        npm install ../turbologger-*.tgz
+        node -e "const turbo = require('turbologger'); console.log('Package verified');"
+        cd ..
+        rm -rf test-install
+
+    - name: Set version (manual trigger)
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        npm version ${{ github.event.inputs.version }} --no-git-tag-version
+        echo "PUBLISH_TAG=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
+
+    - name: Set version (release trigger)
+      if: github.event_name == 'release'
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        npm version $VERSION --no-git-tag-version
+        
+        # Determine tag based on version
+        if [[ $VERSION == *"-beta"* ]]; then
+          echo "PUBLISH_TAG=beta" >> $GITHUB_ENV
+        elif [[ $VERSION == *"-alpha"* ]]; then
+          echo "PUBLISH_TAG=alpha" >> $GITHUB_ENV
+        elif [[ $VERSION == *"-rc"* ]]; then
+          echo "PUBLISH_TAG=next" >> $GITHUB_ENV
+        else
+          echo "PUBLISH_TAG=latest" >> $GITHUB_ENV
+        fi
+
+    - name: Publish to NPM
+      run: npm publish --tag ${{ env.PUBLISH_TAG }}
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    - name: Create GitHub Release Assets
+      if: github.event_name == 'release'
+      run: |
+        gh release upload ${{ github.event.release.tag_name }} turbologger-*.tgz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update documentation
+      if: env.PUBLISH_TAG == 'latest'
+      run: |
+        # This could trigger a documentation site rebuild
+        echo "Documentation update triggered for version ${{ github.event.release.tag_name || github.event.inputs.version }}"
+
+  post-publish:
+    needs: publish
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Verify NPM Package
+      run: |
+        sleep 30  # Wait for NPM to update
+        
+        # Check if package is available on NPM
+        npm view turbologger version
+        
+        # Test installation from NPM
+        mkdir verify-npm
+        cd verify-npm
+        npm init -y
+        npm install turbologger@${{ env.PUBLISH_TAG }}
+        node -e "const turbo = require('turbologger'); console.log('NPM package verified');"
+
+    - name: Notify Discord
+      if: env.DISCORD_WEBHOOK
+      env:
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      run: |
+        VERSION=${{ github.event.release.tag_name || github.event.inputs.version }}
+        curl -H "Content-Type: application/json" \
+             -d "{\"content\": \"TurboLogger $VERSION has been published to NPM!\"}" \
+             $DISCORD_WEBHOOK
+
+    - name: Tweet Release
+      if: env.TWITTER_API_KEY
+      env:
+        TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+        TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+      run: |
+        echo "Tweet about new release"
+        # Add Twitter API call here

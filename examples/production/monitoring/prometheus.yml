@@ -1,0 +1,71 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'turbologger-production'
+
+rule_files:
+  - "rules/*.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # TurboLogger application metrics
+  - job_name: 'turbologger-app'
+    static_configs:
+      - targets: ['turbologger-app:9090']
+    scrape_interval: 10s
+    metrics_path: /metrics
+    scrape_timeout: 5s
+    
+  # Node exporter for system metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 15s
+    
+  # Docker containers
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['docker-exporter:9323']
+    scrape_interval: 30s
+    
+  # Redis metrics
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 15s
+    
+  # Elasticsearch metrics
+  - job_name: 'elasticsearch'
+    static_configs:
+      - targets: ['elasticsearch-exporter:9114']
+    scrape_interval: 30s
+    
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 15s
+
+  # Custom TurboLogger metrics with relabeling
+  - job_name: 'turbologger-custom'
+    static_configs:
+      - targets: ['turbologger-app:9090']
+    scrape_interval: 5s
+    metrics_path: /metrics
+    metric_relabel_configs:
+      # Keep only TurboLogger specific metrics
+      - source_labels: [__name__]
+        regex: 'turbologger_.*'
+        action: keep
+      # Add service label
+      - target_label: service
+        replacement: 'turbologger'
+      # Add environment label
+      - target_label: environment
+        replacement: 'production'

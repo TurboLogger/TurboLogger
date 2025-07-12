@@ -1,0 +1,108 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: turbologger-config
+  namespace: turbologger
+  labels:
+    app.kubernetes.io/name: turbologger
+    app.kubernetes.io/component: config
+data:
+  turbologger.json: |
+    {
+      "performance": {
+        "mode": "ultra",
+        "zeroAllocation": true,
+        "bufferSize": 32768,
+        "flushInterval": 1000
+      },
+      "output": {
+        "format": "json",
+        "level": "info",
+        "timestamp": true,
+        "hostname": true,
+        "pid": true
+      },
+      "observability": {
+        "metrics": true,
+        "traces": true,
+        "opentelemetry": true,
+        "prometheus": {
+          "enabled": true,
+          "port": 9090,
+          "endpoint": "/metrics"
+        }
+      },
+      "security": {
+        "piiMasking": {
+          "enabled": true,
+          "autoDetect": true,
+          "rules": [
+            { "field": "email", "mask": "***@***.***" },
+            { "field": "phone", "mask": "***-***-****" },
+            { "pattern": "\\b\\d{4}-\\d{4}-\\d{4}-\\d{4}\\b", "mask": "****-****-****-****" }
+          ]
+        }
+      },
+      "sampling": {
+        "enabled": true,
+        "targetRate": 0.8,
+        "adaptiveOptions": {
+          "enabled": true,
+          "adjustmentInterval": 10000,
+          "minRate": 0.1,
+          "maxRate": 1.0,
+          "memoryThreshold": 85,
+          "cpuThreshold": 80
+        },
+        "rules": [
+          {
+            "name": "always-errors",
+            "condition": { "level": "error" },
+            "rate": 1.0,
+            "priority": 100
+          },
+          {
+            "name": "sample-info",
+            "condition": { "level": "info" },
+            "rate": 0.6,
+            "priority": 50
+          }
+        ]
+      },
+      "dev": {
+        "realtime": false,
+        "sourceMap": false
+      }
+    }
+  
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    
+    scrape_configs:
+      - job_name: 'turbologger'
+        static_configs:
+          - targets: ['turbologger-service:9090']
+        metrics_path: /metrics
+        scrape_interval: 10s
+        
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - turbologger
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__

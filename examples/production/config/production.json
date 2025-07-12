@@ -1,0 +1,168 @@
+{
+  "performance": {
+    "mode": "ultra",
+    "zeroAllocation": true,
+    "bufferSize": 65536,
+    "flushInterval": 500,
+    "compression": {
+      "enabled": true,
+      "algorithm": "gzip",
+      "level": 6
+    }
+  },
+  "output": {
+    "format": "json",
+    "level": "info",
+    "timestamp": true,
+    "hostname": true,
+    "pid": true,
+    "caller": false
+  },
+  "transports": [
+    {
+      "type": "console",
+      "format": "compact",
+      "level": "error"
+    },
+    {
+      "type": "file",
+      "path": "/app/logs/app.log",
+      "rotation": {
+        "size": "100MB",
+        "count": 10,
+        "interval": "1d"
+      },
+      "level": "info"
+    },
+    {
+      "type": "cloudwatch",
+      "logGroupName": "/turbologger/production",
+      "region": "us-east-1",
+      "batchSize": 10000,
+      "batchInterval": 5000,
+      "level": "warn"
+    },
+    {
+      "type": "elasticsearch",
+      "hosts": ["http://elasticsearch:9200"],
+      "index": "turbologger-logs",
+      "level": "info"
+    }
+  ],
+  "observability": {
+    "metrics": true,
+    "traces": true,
+    "opentelemetry": {
+      "enabled": true,
+      "serviceName": "turbologger-production",
+      "endpoint": "http://jaeger:4317",
+      "sampler": "parentbased_traceidratio",
+      "samplingRate": 0.1
+    },
+    "prometheus": {
+      "enabled": true,
+      "port": 9090,
+      "endpoint": "/metrics",
+      "collectDefaultMetrics": true
+    }
+  },
+  "security": {
+    "piiMasking": {
+      "enabled": true,
+      "autoDetect": true,
+      "strictMode": true,
+      "rules": [
+        { "field": "email", "mask": "***@***.***" },
+        { "field": "phone", "mask": "***-***-****" },
+        { "field": "ssn", "mask": "***-**-****" },
+        { "pattern": "\\b\\d{4}-\\d{4}-\\d{4}-\\d{4}\\b", "mask": "****-****-****-****" },
+        { "pattern": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b", "mask": "***@***.***" }
+      ]
+    },
+    "compliance": ["gdpr", "hipaa", "pci-dss"],
+    "encryption": {
+      "enabled": true,
+      "algorithm": "aes-256-gcm",
+      "keyRotationInterval": "7d"
+    }
+  },
+  "sampling": {
+    "enabled": true,
+    "targetRate": 0.9,
+    "adaptiveOptions": {
+      "enabled": true,
+      "adjustmentInterval": 30000,
+      "minRate": 0.05,
+      "maxRate": 1.0,
+      "memoryThreshold": 90,
+      "cpuThreshold": 85,
+      "responseToBackpressure": true
+    },
+    "rules": [
+      {
+        "name": "always-critical",
+        "condition": { "level": "fatal" },
+        "rate": 1.0,
+        "priority": 200
+      },
+      {
+        "name": "always-errors",
+        "condition": { "level": "error" },
+        "rate": 1.0,
+        "priority": 100
+      },
+      {
+        "name": "high-value-requests",
+        "condition": { "statusCode": { "$gte": 400 } },
+        "rate": 1.0,
+        "priority": 90
+      },
+      {
+        "name": "sample-warnings",
+        "condition": { "level": "warn" },
+        "rate": 0.8,
+        "priority": 70
+      },
+      {
+        "name": "sample-info",
+        "condition": { "level": "info" },
+        "rate": 0.5,
+        "priority": 50
+      },
+      {
+        "name": "minimal-debug",
+        "condition": { "level": "debug" },
+        "rate": 0.01,
+        "priority": 10
+      }
+    ]
+  },
+  "patterns": {
+    "enabled": true,
+    "windowSize": 5000,
+    "minOccurrences": 5,
+    "enableAnomalyDetection": true,
+    "thresholds": {
+      "errorRate": 0.05,
+      "responseTime": 5000,
+      "memoryUsage": 0.9
+    }
+  },
+  "aggregation": {
+    "enabled": true,
+    "interval": 60000,
+    "metrics": ["count", "rate", "p50", "p95", "p99"],
+    "groupBy": ["service", "endpoint", "status"]
+  },
+  "dev": {
+    "realtime": false,
+    "sourceMap": false,
+    "prettyPrint": false
+  },
+  "limits": {
+    "maxLogSize": "1MB",
+    "maxQueueSize": 100000,
+    "maxMemoryUsage": "512MB",
+    "maxFileSize": "100MB"
+  }
+}

@@ -1,0 +1,557 @@
+// import { TurboSerializer } from './serializer'; // Not used in zero-dependency mode
+import { MultiLevelBuffer, CircularBufferOptions } from './buffer';
+import { Transport, TransportOptions, ConsoleTransport } from './transport';
+import { LogAggregator, LogData as AggregatorLogData } from '../analytics/aggregation';
+import { NativeOptimizer, SerializableObject } from '../performance/native-optimizer';
+import { LogClassifier } from '../ml/log-classifier';
+import { hostname } from 'os';
+import { AsyncLocalStorage } from 'async_hooks';
+
+export interface LogLevel {
+  value: number;
+  label: string;
+}
+
+export const LOG_LEVELS = {
+  trace: { value: 10, label: 'trace' },
+  debug: { value: 20, label: 'debug' },
+  info: { value: 30, label: 'info' },
+  warn: { value: 40, label: 'warn' },
+  error: { value: 50, label: 'error' },
+  fatal: { value: 60, label: 'fatal' }
+} as const;
+
+export type LogLevelName = keyof typeof LOG_LEVELS;
+
+export interface TurboLoggerOptions {
+  performance?: {
+    mode?: 'standard' | 'fast' | 'ultra';
+    bufferSize?: number;
+    flushInterval?: number;
+    zeroAllocation?: boolean;
+  };
+  output?: {
+    format?: 'json' | 'structured' | 'compact';
+    destination?: NodeJS.WritableStream;
+    level?: LogLevelName;
+    timestamp?: boolean;
+    hostname?: boolean;
+    pid?: boolean;
+  };
+  observability?: {
+    metrics?: boolean;
+    traces?: boolean;
+    opentelemetry?: boolean;
+    prometheus?: {
+      enabled: boolean;
+      port?: number;
+      endpoint?: string;
+    };
+  };
+  cloud?: {
+    kubernetes?: boolean;
+    prometheus?: boolean;
+    jaeger?: boolean;
+    costTracking?: boolean;
+    serviceDiscovery?: boolean;
+  };
+  security?: {
+    encryption?: string;
+    signing?: boolean;
+    piiMasking?: {
+      enabled: boolean;
+      autoDetect?: boolean;
+      rules?: Array<{ field?: string; pattern?: RegExp; mask: string }>;
+    };
+    compliance?: string[];
+  };
+  dev?: {
+    realtime?: boolean;
+    sourceMap?: boolean;
+    stackTrace?: boolean;
+    ide?: string;
+    hotReload?: boolean;
+    debugger?: boolean;
+  };
+  name?: string;
+  context?: Record<string, unknown>;
+  transports?: Transport[];
+  errorHandler?: (error: Error, context: string) => void;
+}
+
+interface LogObject {
+  level: number;
+  levelLabel: string;
+  msg?: string;
+  time: number;
+  hostname?: string;
+  pid?: number;
+  name?: string;
+  [key: string]: unknown;
+}
+
+const asyncLocalStorage = new AsyncLocalStorage<Record<string, unknown>>();
+
+export class TurboLogger {
+  private options: Required<TurboLoggerOptions>;
+  private buffer: MultiLevelBuffer<LogObject>;
+  private transports: Transport[] = [];
+  private context: Record<string, unknown> = {};
+  private name?: string;
+  private aggregator?: LogAggregator;
+  private nativeOptimizer?: NativeOptimizer;
+  private classifier?: LogClassifier;
+  private static defaultHostname = hostname();
+  private static defaultPid = process.pid;
+
+  constructor(options: TurboLoggerOptions = {}) {
+    this.options = this.mergeOptions(options);
+    this.name = options.name;
+    this.context = options.context || {};
+    
+    this.buffer = this.createBuffer();
+    this.setupTransports(options.transports);
+    this.initializeAdvancedFeatures();
+  }
+
+  private mergeOptions(options: TurboLoggerOptions): Required<TurboLoggerOptions> {
+    return {
+      performance: {
+        mode: options.performance?.mode || 'fast',
+        bufferSize: options.performance?.bufferSize || 4096,
+        flushInterval: options.performance?.flushInterval || 100,
+        zeroAllocation: options.performance?.zeroAllocation || false
+      },
+      output: {
+        format: options.output?.format || 'json',
+        destination: options.output?.destination || process.stdout,
+        level: options.output?.level || 'info',
+        timestamp: options.output?.timestamp !== false,
+        hostname: options.output?.hostname !== false,
+        pid: options.output?.pid !== false
+      },
+      observability: {
+        metrics: options.observability?.metrics || false,
+        traces: options.observability?.traces || false,
+        opentelemetry: options.observability?.opentelemetry || false,
+        prometheus: options.observability?.prometheus || { enabled: false }
+      },
+      cloud: {
+        kubernetes: options.cloud?.kubernetes || false,
+        prometheus: options.cloud?.prometheus || false,
+        jaeger: options.cloud?.jaeger || false,
+        costTracking: options.cloud?.costTracking || false,
+        serviceDiscovery: options.cloud?.serviceDiscovery || false
+      },
+      security: {
+        encryption: options.security?.encryption || '',
+        signing: options.security?.signing || false,
+        piiMasking: options.security?.piiMasking || { enabled: false },
+        compliance: options.security?.compliance || []
+      },
+      dev: {
+        realtime: options.dev?.realtime || false,
+        sourceMap: options.dev?.sourceMap || false,
+        stackTrace: options.dev?.stackTrace || false,
+        ide: options.dev?.ide || '',
+        hotReload: options.dev?.hotReload || false,
+        debugger: options.dev?.debugger || false
+      },
+      name: options.name,
+      context: options.context || {},
+      transports: options.transports || []
+    } as Required<TurboLoggerOptions>;
+  }
+
+  private createBuffer(): MultiLevelBuffer<LogObject> {
+    const bufferConfig: CircularBufferOptions = {
+      size: this.options.performance.bufferSize || 4096,
+      flushInterval: this.options.performance.flushInterval || 100,
+      onFlush: async (items: unknown[]) => {
+        await this.flushToTransports(items as LogObject[]);
+      }
+    };
+
+    return new MultiLevelBuffer<LogObject>(
+      {
+        trace: bufferConfig,
+        debug: bufferConfig,
+        info: bufferConfig,
+        warn: bufferConfig,
+        error: bufferConfig,
+        fatal: bufferConfig
+      },
+      'info'
+    );
+  }
+
+  private setupTransports(transports?: Transport[]): void {
+    if (transports && transports.length > 0) {
+      this.transports = transports;
+    } else {
+      this.transports = [new ConsoleTransport({
+        destination: this.options.output.destination,
+        format: this.options.output.format
+      } as TransportOptions)];
+    }
+  }
+
+  private initializeAdvancedFeatures(): void {
+    // Initialize log aggregation
+    if (this.options.observability?.metrics) {
+      this.aggregator = new LogAggregator({
+        enabled: true,
+        interval: 60000, // 1 minute
+        groupBy: ['level', 'service', 'endpoint'],
+        metrics: ['count', 'rate', 'p95'],
+        retentionPeriod: 3600000 // 1 hour
+      });
+    }
+
+    // Initialize native performance optimizations
+    if (this.options.performance?.mode === 'ultra') {
+      this.nativeOptimizer = new NativeOptimizer({
+        enabled: true,
+        serialization: { enabled: true },
+        compression: { enabled: true, algorithm: 'lz4' },
+        jsonParsing: { enabled: true }
+      });
+    }
+
+    // Initialize ML-based log classification
+    if (this.options.observability?.metrics) {
+      this.classifier = new LogClassifier({
+        enabled: true,
+        modelType: 'naive-bayes',
+        categories: ['error', 'performance', 'security', 'business', 'system'],
+        onlineTraining: true,
+        confidenceThreshold: 0.7
+      });
+    }
+  }
+
+  private async flushToTransports(items: LogObject[]): Promise<void> {
+    const promises: Promise<void>[] = [];
+    
+    for (const transport of this.transports) {
+      if (transport.isActive()) {
+        promises.push(transport.writeBatch(items));
+      }
+    }
+    
+    const results = await Promise.allSettled(promises);
+    
+    // Log any transport failures
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.error(`Transport ${index} flush failed:`, result.reason);
+      }
+    });
+  }
+
+  private handleError(error: Error, context: string): void {
+    if (this.options.errorHandler) {
+      try {
+        this.options.errorHandler(error, context);
+      } catch (handlerError) {
+        console.error(`Error handler failed in ${context}:`, handlerError);
+        console.error('Original error:', error);
+      }
+    } else {
+      console.error(`[TurboLogger] Error in ${context}:`, error);
+    }
+  }
+
+  private shouldLog(level: LogLevelName): boolean {
+    const configuredLevel = this.options.output.level as LogLevelName;
+    return LOG_LEVELS[level].value >= LOG_LEVELS[configuredLevel].value;
+  }
+
+  private createLogObject(
+    level: LogLevelName,
+    msgOrObj?: string | Record<string, unknown>,
+    msgOrData?: string | Record<string, unknown>
+  ): LogObject {
+    const logLevel = LOG_LEVELS[level];
+    const asyncContext = asyncLocalStorage.getStore() || {};
+    
+    const logObj: LogObject = {
+      level: logLevel.value,
+      levelLabel: logLevel.label,
+      time: Date.now(),
+      ...this.context,
+      ...asyncContext
+    };
+
+    if (this.options.output.hostname) {
+      logObj.hostname = TurboLogger.defaultHostname;
+    }
+
+    if (this.options.output.pid) {
+      logObj.pid = TurboLogger.defaultPid;
+    }
+
+    if (this.name) {
+      logObj.name = this.name;
+    }
+
+    // Handle different calling patterns:
+    // 1. logger.info('message') 
+    // 2. logger.info({data})
+    // 3. logger.info('message', {data})
+    // 4. logger.info({data}, 'message')
+    
+    if (typeof msgOrObj === 'string') {
+      logObj.msg = msgOrObj;
+      // If second parameter is an object, merge it
+      if (typeof msgOrData === 'object' && msgOrData !== null) {
+        Object.assign(logObj, msgOrData);
+      }
+    } else if (typeof msgOrObj === 'object' && msgOrObj !== null) {
+      Object.assign(logObj, msgOrObj);
+      // If second parameter is a string, use it as message
+      if (typeof msgOrData === 'string') {
+        logObj.msg = msgOrData;
+      }
+    }
+
+    return logObj;
+  }
+
+  private log(
+    level: LogLevelName,
+    msgOrObj?: string | Record<string, unknown>,
+    msgOrData?: string | Record<string, unknown>
+  ): void {
+    if (!this.shouldLog(level)) {
+      return;
+    }
+
+    const logObj = this.createLogObject(level, msgOrObj, msgOrData);
+    
+    if (this.options.security.piiMasking?.enabled) {
+      this.maskPII(logObj);
+    }
+
+    // Add to aggregation
+    if (this.aggregator) {
+      // Convert LogObject to AggregatorLogData format
+      const aggregatorLog: AggregatorLogData = {
+        ...logObj,
+        level: logObj.levelLabel, // Override with string value
+        msg: logObj.msg,
+        time: logObj.time
+      };
+      this.aggregator.addLog(aggregatorLog);
+    }
+
+    // ML classification
+    if (this.classifier) {
+      const classification = this.classifier.classify({
+        ...logObj,
+        level: logObj.levelLabel // Ensure string type for classifier
+      });
+      if (classification) {
+        logObj.category = classification.category;
+        logObj.confidence = classification.confidence;
+      }
+    }
+
+    // Use native optimization for serialization if available
+    if (this.nativeOptimizer && this.options.performance.mode === 'ultra') {
+      try {
+        // Convert LogObject to SerializableObject
+        const serializableObj: SerializableObject = {
+          level: logObj.level,
+          levelLabel: logObj.levelLabel,
+          msg: logObj.msg,
+          time: logObj.time,
+          hostname: logObj.hostname,
+          pid: logObj.pid,
+          name: logObj.name
+        };
+        logObj._serialized = this.nativeOptimizer.serialize(serializableObj);
+      } catch (error) {
+        // Fallback to regular serialization
+        this.handleError(error instanceof Error ? error : new Error(String(error)), 'native serialization');
+      }
+    }
+
+    this.buffer.write(logObj, level);
+
+    if (level === 'fatal') {
+      this.buffer.flush(level).catch(console.error);
+    }
+  }
+
+  private maskPII(obj: Record<string, unknown>): void {
+    if (!this.options.security.piiMasking?.rules) return;
+
+    for (const rule of this.options.security.piiMasking.rules) {
+      if (rule.field && obj[rule.field]) {
+        obj[rule.field] = rule.mask;
+      } else if (rule.pattern) {
+        for (const key in obj) {
+          if (typeof obj[key] === 'string' && rule.pattern.test(obj[key])) {
+            obj[key] = rule.mask;
+          }
+        }
+      }
+    }
+  }
+
+  trace(msgOrObj?: string | Record<string, unknown>, msgOrData?: string | Record<string, unknown>): void {
+    this.log('trace', msgOrObj, msgOrData);
+  }
+
+  debug(msgOrObj?: string | Record<string, unknown>, msgOrData?: string | Record<string, unknown>): void {
+    this.log('debug', msgOrObj, msgOrData);
+  }
+
+  info(msgOrObj?: string | Record<string, unknown>, msgOrData?: string | Record<string, unknown>): void {
+    this.log('info', msgOrObj, msgOrData);
+  }
+
+  warn(msgOrObj?: string | Record<string, unknown>, msgOrData?: string | Record<string, unknown>): void {
+    this.log('warn', msgOrObj, msgOrData);
+  }
+
+  error(msgOrObj?: string | Record<string, unknown> | Error, msgOrData?: string | Record<string, unknown>): void {
+    if (msgOrObj instanceof Error) {
+      const errorObj = {
+        msg: msgOrObj.message,
+        err: {
+          type: msgOrObj.name,
+          message: msgOrObj.message,
+          stack: this.options.dev.stackTrace ? msgOrObj.stack : undefined
+        }
+      };
+      this.log('error', errorObj, msgOrData as string);
+    } else {
+      this.log('error', msgOrObj, msgOrData);
+    }
+  }
+
+  fatal(msgOrObj?: string | Record<string, unknown> | Error, msgOrData?: string | Record<string, unknown>): void {
+    if (msgOrObj instanceof Error) {
+      const errorObj = {
+        msg: msgOrObj.message,
+        err: {
+          type: msgOrObj.name,
+          message: msgOrObj.message,
+          stack: msgOrObj.stack
+        }
+      };
+      this.log('fatal', errorObj, msgOrData as string);
+    } else {
+      this.log('fatal', msgOrObj, msgOrData);
+    }
+  }
+
+  child(context: Record<string, unknown>): TurboLogger {
+    const childOptions = { ...this.options };
+    // Create new transport instances to avoid circular references
+    const childTransports = this.transports.map(transport => {
+      // Clone transports to prevent shared state
+      const proto = Object.getPrototypeOf(transport) as object;
+      return Object.assign(Object.create(proto), transport) as Transport;
+    });
+    
+    return new TurboLogger({
+      ...childOptions,
+      name: this.name,
+      context: { ...this.context, ...context },
+      transports: childTransports
+    });
+  }
+
+  withContext<T>(context: Record<string, unknown>, fn?: () => T | Promise<T>): T | Promise<T> | TurboLogger {
+    if (fn) {
+      // Async context with callback
+      const currentContext = asyncLocalStorage.getStore() || {};
+      const mergedContext = { ...currentContext, ...context };
+      return asyncLocalStorage.run(mergedContext, fn);
+    } else {
+      // Return new logger instance with context
+      const currentContext = asyncLocalStorage.getStore() || {};
+      const mergedContext = { ...currentContext, ...context };
+      
+      return new TurboLogger({
+        ...this.options,
+        name: this.name,
+        context: { ...this.context, ...mergedContext },
+        transports: this.transports
+      });
+    }
+  }
+
+  runWithContext<T>(context: Record<string, unknown>, fn: () => T): T {
+    const currentContext = asyncLocalStorage.getStore() || {};
+    const mergedContext = { ...currentContext, ...context };
+    return asyncLocalStorage.run(mergedContext, fn);
+  }
+
+  addTransport(transport: Transport): void {
+    this.transports.push(transport);
+  }
+
+  removeTransport(transport: Transport): void {
+    const index = this.transports.indexOf(transport);
+    if (index !== -1) {
+      this.transports.splice(index, 1);
+    }
+  }
+
+  async flush(): Promise<void> {
+    await this.buffer.flush();
+  }
+
+  // Advanced analytics methods
+  getAggregatedMetrics(filter?: Record<string, unknown>): unknown[] {
+    return this.aggregator ? this.aggregator.getAggregatedMetrics(filter) : [];
+  }
+
+  getCorrelations(filter?: Record<string, unknown>): unknown[] {
+    return this.aggregator ? this.aggregator.getCorrelations(filter) : [];
+  }
+
+  getClassificationStats(): unknown {
+    return this.classifier ? this.classifier.getStats() : null;
+  }
+
+  getPerformanceStats(): Record<string, unknown> {
+    return this.nativeOptimizer ? this.nativeOptimizer.getPerformanceStats() : {};
+  }
+
+  trainClassifier(log: LogObject, category: string): void {
+    if (this.classifier) {
+      this.classifier.train({
+        ...log,
+        level: log.levelLabel // Ensure string type
+      }, category);
+    }
+  }
+
+  destroy(): void {
+    this.buffer.destroy();
+    for (const transport of this.transports) {
+      transport.destroy();
+    }
+    
+    if (this.aggregator) {
+      this.aggregator.destroy();
+    }
+    
+    if (this.nativeOptimizer) {
+      this.nativeOptimizer.destroy();
+    }
+    
+    if (this.classifier) {
+      this.classifier.destroy();
+    }
+  }
+}
+
+export function createLogger(options?: TurboLoggerOptions): TurboLogger {
+  return new TurboLogger(options);
+}

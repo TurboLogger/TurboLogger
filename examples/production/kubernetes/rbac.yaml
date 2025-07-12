@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: turbologger-service-account
+  namespace: turbologger
+  labels:
+    app.kubernetes.io/name: turbologger
+    app.kubernetes.io/component: service-account
+  annotations:
+    # AWS IAM role annotation for IRSA
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/TurboLoggerRole
+    # GCP workload identity annotation
+    iam.gke.io/gcp-service-account: turbologger@your-project.iam.gserviceaccount.com
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: turbologger-cluster-role
+  labels:
+    app.kubernetes.io/name: turbologger
+    app.kubernetes.io/component: rbac
+rules:
+  # Read node metrics for performance monitoring
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/stats", "nodes/metrics"]
+    verbs: ["get", "list"]
+  # Read pod metrics
+  - apiGroups: [""]
+    resources: ["pods", "pods/stats"]
+    verbs: ["get", "list"]
+  # Access to metrics API
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: turbologger-cluster-role-binding
+  labels:
+    app.kubernetes.io/name: turbologger
+    app.kubernetes.io/component: rbac
+subjects:
+  - kind: ServiceAccount
+    name: turbologger-service-account
+    namespace: turbologger
+roleRef:
+  kind: ClusterRole
+  name: turbologger-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: turbologger-role
+  namespace: turbologger
+  labels:
+    app.kubernetes.io/name: turbologger
+    app.kubernetes.io/component: rbac
+rules:
+  # Access to configmaps and secrets
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  # Access to events for logging
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: turbologger-role-binding
+  namespace: turbologger
+  labels:
+    app.kubernetes.io/name: turbologger
+    app.kubernetes.io/component: rbac
+subjects:
+  - kind: ServiceAccount
+    name: turbologger-service-account
+    namespace: turbologger
+roleRef:
+  kind: Role
+  name: turbologger-role
+  apiGroup: rbac.authorization.k8s.io

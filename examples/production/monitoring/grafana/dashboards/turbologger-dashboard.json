@@ -1,0 +1,227 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "TurboLogger Production Dashboard",
+    "tags": ["turbologger", "logging", "production"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Log Rate (logs/sec)",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "rate(turbologger_logs_total[5m])",
+            "legendFormat": "Logs/sec"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "unit": "ops"
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Error Rate",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
+        "targets": [
+          {
+            "expr": "rate(turbologger_logs_total{level=\"error\"}[5m]) / rate(turbologger_logs_total[5m]) * 100",
+            "legendFormat": "Error %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 1},
+                {"color": "red", "value": 5}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Memory Usage",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "turbologger_memory_usage_bytes / turbologger_memory_limit_bytes * 100",
+            "legendFormat": "Memory %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "unit": "percent",
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 70},
+                {"color": "red", "value": 90}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Buffer Utilization",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+        "targets": [
+          {
+            "expr": "turbologger_buffer_size / turbologger_buffer_capacity * 100",
+            "legendFormat": "Buffer %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "unit": "percent",
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 60},
+                {"color": "red", "value": 80}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Log Levels Over Time",
+        "type": "graph",
+        "gridPos": {"h": 9, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(turbologger_logs_total{level=\"error\"}[1m])",
+            "legendFormat": "Error"
+          },
+          {
+            "expr": "rate(turbologger_logs_total{level=\"warn\"}[1m])",
+            "legendFormat": "Warning"
+          },
+          {
+            "expr": "rate(turbologger_logs_total{level=\"info\"}[1m])",
+            "legendFormat": "Info"
+          },
+          {
+            "expr": "rate(turbologger_logs_total{level=\"debug\"}[1m])",
+            "legendFormat": "Debug"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Logs/sec",
+            "min": 0
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Transport Performance",
+        "type": "graph",
+        "gridPos": {"h": 9, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "turbologger_transport_latency_ms",
+            "legendFormat": "{{transport}} Latency"
+          },
+          {
+            "expr": "rate(turbologger_transport_errors_total[1m])",
+            "legendFormat": "{{transport}} Errors/sec"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Latency (ms) / Errors/sec",
+            "min": 0
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Sampling Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 17},
+        "targets": [
+          {
+            "expr": "turbologger_sampling_rate",
+            "legendFormat": "Current Rate"
+          },
+          {
+            "expr": "turbologger_sampling_target_rate",
+            "legendFormat": "Target Rate"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Rate",
+            "min": 0,
+            "max": 1
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Pattern Recognition",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 17},
+        "targets": [
+          {
+            "expr": "turbologger_patterns_detected_total",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {"Time": true, "__name__": true},
+              "renameByName": {
+                "pattern": "Pattern",
+                "Value": "Count"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "System Resources",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 17},
+        "targets": [
+          {
+            "expr": "turbologger_cpu_usage_percent",
+            "legendFormat": "CPU %"
+          },
+          {
+            "expr": "turbologger_memory_usage_bytes / 1024 / 1024",
+            "legendFormat": "Memory MB"
+          }
+        ]
+      }
+    ]
+  }
+}
