@@ -300,7 +300,19 @@ export class TurboMetrics {
           res.end('Not Found');
         }
       });
-      
+
+      // FIX NEW-007: Add error handler to prevent uncaught 'error' event crashes
+      // Without this, EADDRINUSE or network errors will crash the Node.js process
+      this.httpServer.on('error', (error: Error) => {
+        const err = error as NodeJS.ErrnoException;
+        if (err.code === 'EADDRINUSE') {
+          console.error(`Port ${port} is already in use. Metrics server failed to start.`);
+        } else {
+          console.error('Prometheus metrics server error:', error);
+        }
+        this.httpServer = undefined;
+      });
+
       this.httpServer.listen(port, () => {
         console.log(`Prometheus metrics server listening on port ${port}`);
       });

@@ -303,9 +303,16 @@ export class SecurityManager implements ISecurityManager {
     }
 
     for (const pattern of this.config.piiPatterns) {
+      // FIX NEW-002: Reset regex lastIndex to prevent stateful regex bugs
+      // Global regexes maintain state via lastIndex, causing inconsistent results
+      pattern.pattern.lastIndex = 0;
+
       if (pattern.pattern.test(content)) {
+        // Reset again after test to ensure clean state
+        pattern.pattern.lastIndex = 0;
+
         this.stats.piiDetections++;
-        
+
         this.recordViolation({
           type: 'pii_detected',
           input: content.substring(0, 100),
@@ -314,7 +321,7 @@ export class SecurityManager implements ISecurityManager {
           timestamp: Date.now(),
           action: 'masked'
         });
-        
+
         return true;
       }
     }
@@ -331,11 +338,19 @@ export class SecurityManager implements ISecurityManager {
     let wasModified = false;
 
     for (const pattern of this.config.piiPatterns) {
+      // FIX NEW-002: Reset regex lastIndex to prevent stateful regex bugs
+      pattern.pattern.lastIndex = 0;
+
       const matches = masked.match(pattern.pattern);
       if (matches) {
+        // Reset again before replace to ensure clean state
+        pattern.pattern.lastIndex = 0;
         masked = masked.replace(pattern.pattern, pattern.mask);
+        // Reset after replace
+        pattern.pattern.lastIndex = 0;
+
         wasModified = true;
-        
+
         this.recordViolation({
           type: 'pii_masked',
           input: `${matches.length} ${pattern.name} pattern(s)`,

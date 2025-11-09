@@ -28,8 +28,21 @@ export class PIIDetector {
         name: 'email',
         pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
         mask: (match) => {
-          const [local, domain] = match.split('@');
-          const [name, tld] = domain.split('.');
+          // FIX NEW-010: Validate email format before masking to prevent crashes
+          const parts = match.split('@');
+          if (parts.length !== 2) return '***@***.***';
+
+          const [local, domain] = parts;
+          if (!local || !domain) return '***@***.***';
+
+          const domainParts = domain.split('.');
+          if (domainParts.length < 2) return '***@***.***';
+
+          const [name, ...tldParts] = domainParts;
+          const tld = tldParts.join('.');
+
+          if (!name || !tld) return '***@***.***';
+
           return `${local.charAt(0)}***@${name.charAt(0)}***.${tld}`;
         },
         confidence: 0.95,
@@ -173,30 +186,39 @@ export class PIIDetector {
   ): string {
     let result = text;
     const allRules = [...this.rules, ...this.customPatterns.values()];
-    
+
     for (const rule of allRules) {
       if (rule.confidence >= confidenceThreshold) {
         const matches = text.match(rule.pattern);
         if (matches) {
-          for (const match of matches) {
-            const masked = typeof rule.mask === 'function' 
-              ? rule.mask(match) 
+          // FIX NEW-012: Track replaced positions to avoid multiple replacements
+          // Using replaceAll would replace all instances, not just the detected ones
+          // Process matches in reverse order to maintain correct indices
+          const uniqueMatches = Array.from(new Set(matches)).reverse();
+
+          for (const match of uniqueMatches) {
+            const masked = typeof rule.mask === 'function'
+              ? rule.mask(match)
               : rule.mask;
-            
-            result = result.replace(match, masked);
-            
-            detections.push({
-              field: path,
-              type: rule.name,
-              confidence: rule.confidence,
-              original: match,
-              masked
-            });
+
+            // Replace only the first occurrence to avoid double-masking
+            const index = result.indexOf(match);
+            if (index !== -1) {
+              result = result.substring(0, index) + masked + result.substring(index + match.length);
+
+              detections.push({
+                field: path,
+                type: rule.name,
+                confidence: rule.confidence,
+                original: match,
+                masked
+              });
+            }
           }
         }
       }
     }
-    
+
     return result;
   }
 
@@ -229,17 +251,33 @@ export class PIIDetector {
 
   private maskEmail(email: string): string {
     try {
-      const [local, domain] = email.split('@');
-      if (local && domain) {
-        const maskedLocal = local.charAt(0) + '*'.repeat(Math.max(0, local.length - 2)) + local.charAt(local.length - 1);
-        const [domainName, tld] = domain.split('.');
-        const maskedDomain = domainName.charAt(0) + '*'.repeat(Math.max(0, domainName.length - 2)) + domainName.charAt(domainName.length - 1);
-        return `${maskedLocal}@${maskedDomain}.${tld}`;
-      }
+      // FIX NEW-010: Validate email format before processing
+      const parts = email.split('@');
+      if (parts.length !== 2) return '***@***.***';
+
+      const [local, domain] = parts;
+      if (!local || !domain) return '***@***.***';
+
+      const domainParts = domain.split('.');
+      if (domainParts.length < 2) return '***@***.***';
+
+      const maskedLocal = local.charAt(0) + '*'.repeat(Math.max(0, local.length - 2)) + local.charAt(local.length - 1);
+
+      // Handle multi-level domains (e.g., example.co.uk)
+      const tld = domainParts[domainParts.length - 1];
+      const domainName = domainParts.slice(0, -1).join('.');
+
+      if (!domainName || !tld) return '***@***.***';
+
+      const maskedDomain = domainName.charAt(0) + '*'.repeat(Math.max(0, domainName.length - 2)) + domainName.charAt(domainName.length - 1);
+      return `${maskedLocal}@${maskedDomain}.${tld}`;
     } catch {}
-    
+
     return '***@***.***';
   }
+
+  // FIX NEW-009: Cache compiled regexes to avoid recompilation on every call
+  private compiledPatternCache = new WeakMap<PIIRule, RegExp>();
 
   analyzeText(text: string): Array<{
     type: string;
@@ -253,13 +291,21 @@ export class PIIDetector {
       position: { start: number; end: number };
       value: string;
     }> = [];
-    
+
     const allRules = [...this.rules, ...this.customPatterns.values()];
-    
+
     for (const rule of allRules) {
+      // FIX NEW-009: Use cached regex instead of recompiling every time
+      let regex = this.compiledPatternCache.get(rule);
+      if (!regex) {
+        regex = new RegExp(rule.pattern.source, rule.pattern.flags);
+        this.compiledPatternCache.set(rule, regex);
+      }
+
+      // Reset lastIndex for global regexes to ensure clean state
+      regex.lastIndex = 0;
+
       let match;
-      const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
-      
       while ((match = regex.exec(text)) !== null) {
         results.push({
           type: rule.name,
@@ -270,11 +316,11 @@ export class PIIDetector {
           },
           value: match[0]
         });
-        
+
         if (!rule.pattern.global) break;
       }
     }
-    
+
     return results.sort((a, b) => b.confidence - a.confidence);
   }
 

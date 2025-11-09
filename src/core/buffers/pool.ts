@@ -157,7 +157,10 @@ export class OptimizedCircularBuffer<T> {
     }
 
     this.size = options.size;
-    this.isPowerOf2 = (options.size & (options.size - 1)) === 0;
+    // FIX NEW-003: Explicit size=0 check before power-of-2 validation
+    // (0 & (0 - 1)) === 0, so size=0 would incorrectly pass power-of-2 check
+    // This would cause division by zero or incorrect sizeMask = -1
+    this.isPowerOf2 = options.size > 0 && (options.size & (options.size - 1)) === 0;
     this.sizeMask = this.isPowerOf2 ? options.size - 1 : 0;
     
     this.buffer = new Array(this.size);

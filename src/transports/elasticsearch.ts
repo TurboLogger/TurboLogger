@@ -291,16 +291,24 @@ export class ElasticsearchTransport extends Transport {
       const bulkResponse = response as BulkResponse;
       if (bulkResponse.errors) {
         const failedLogs: QueuedLog[] = [];
-        
+
         bulkResponse.items.forEach((item, index: number) => {
           const operation = item.index || item.create || item.update || item.delete;
-          
+
           if (operation && operation.error) {
             console.error(`Elasticsearch bulk error for document ${index}:`, operation.error);
-            
-            // Add to retry queue if retriable error
+
+            // FIX NEW-005: Validate index bounds before accessing logsToProcess
+            // Elasticsearch response could have different number of items than sent
             if (operation.error && this.isRetriableError(operation.error)) {
-              failedLogs.push(logsToProcess[index]);
+              if (index < logsToProcess.length) {
+                const failedLog = logsToProcess[index];
+                if (failedLog) {
+                  failedLogs.push(failedLog);
+                }
+              } else {
+                console.warn(`Index ${index} out of bounds for logsToProcess (length: ${logsToProcess.length})`);
+              }
             }
           }
         });

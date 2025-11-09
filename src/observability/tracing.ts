@@ -269,7 +269,14 @@ export class TurboTracer {
   private async sendToJaeger(span: Span): Promise<void> {
     try {
       const jaegerSpan = this.convertToJaegerFormat(span);
-      
+
+      // FIX NEW-008: Check if fetch is available (Node.js 18+)
+      // Use https module as fallback for older Node versions
+      if (typeof fetch === 'undefined') {
+        await this.sendToJaegerWithHttps(span, jaegerSpan);
+        return;
+      }
+
       // Simplified Jaeger HTTP API call
       const response = await fetch(`${this.options.jaegerEndpoint}/api/traces`, {
         method: 'POST',
@@ -296,6 +303,60 @@ export class TurboTracer {
     } catch (error) {
       // Silently fail for now, could add retry logic
     }
+  }
+
+  // FIX NEW-008: Fallback method using https module for Node.js < 18
+  private async sendToJaegerWithHttps(span: Span, jaegerSpan: JaegerSpan): Promise<void> {
+    const https = require('https');
+    const { URL } = require('url');
+
+    return new Promise((resolve, reject) => {
+      const url = new URL(`${this.options.jaegerEndpoint}/api/traces`);
+      const body = JSON.stringify({
+        data: [{
+          traceID: span.traceId,
+          spans: [jaegerSpan],
+          processes: {
+            p1: {
+              serviceName: this.options.serviceName,
+              tags: []
+            }
+          }
+        }]
+      });
+
+      const options = {
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body)
+        }
+      };
+
+      const req = https.request(options, (res: any) => {
+        let data = '';
+        res.on('data', (chunk: any) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve();
+          } else {
+            reject(new Error(`Jaeger export failed: ${res.statusCode}`));
+          }
+        });
+      });
+
+      req.setTimeout(10000, () => {
+        req.destroy();
+        reject(new Error('Jaeger request timeout'));
+      });
+
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
   }
 
   private convertToJaegerFormat(span: Span): JaegerSpan {
