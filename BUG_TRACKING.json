@@ -40,7 +40,7 @@
       "title": "Potential ReDoS (Regular Expression Denial of Service)",
       "description": "Multiple regex patterns without complexity limits can cause ReDoS attacks",
       "impact": "An attacker could freeze the logging system by providing malicious input",
-      "status": "PENDING",
+      "status": "FIXED",
       "test_added": false
     },
     {
@@ -76,7 +76,7 @@
       "title": "Missing Input Validation in Security Manager",
       "description": "isDangerousKey check misses many dangerous properties like __lookupSetter__, __defineGetter__",
       "impact": "Prototype pollution attacks could succeed through unprotected properties",
-      "status": "PENDING",
+      "status": "FIXED",
       "test_added": false
     },
     {
@@ -124,7 +124,7 @@
       "title": "Missing Synchronization in Memory Pool",
       "description": "acquire() and release() methods are not thread-safe",
       "impact": "Memory corruption, use-after-free errors, or pool exhaustion under concurrent load",
-      "status": "PENDING",
+      "status": "FIXED",
       "test_added": false
     },
     {
@@ -184,7 +184,7 @@
       "title": "HTTP Server Leak in Metrics",
       "description": "startPrometheusServer() creates HTTP server without proper error handling or cleanup",
       "impact": "Port binding failures and resource leaks when server can't start",
-      "status": "PENDING",
+      "status": "FIXED",
       "test_added": false
     },
     {
@@ -352,7 +352,7 @@
       "title": "Missing Error Propagation in Transport Write",
       "description": "write() method can fail silently without propagating errors",
       "impact": "Lost logs without notification, violating error handling contracts",
-      "status": "PENDING",
+      "status": "FIXED",
       "test_added": false
     },
     {
@@ -400,7 +400,7 @@
       "title": "Swallowed Exceptions in Log Processing",
       "description": "processLogEntry() catches all errors and never rethrows or indicates failure",
       "impact": "Critical logging failures go unnoticed, making debugging impossible",
-      "status": "PENDING",
+      "status": "FIXED",
       "test_added": false
     },
     {
@@ -448,7 +448,7 @@
       "title": "Race Condition in Transport Initialization",
       "description": "initializeClient() is async but called from constructor without await",
       "impact": "Writes fail because client isn't ready, data loss",
-      "status": "PENDING",
+      "status": "FIXED",
       "test_added": false
     },
     {
@@ -496,7 +496,7 @@
       "title": "No Timeout for Network Requests",
       "description": "makeStackdriverRequest() creates HTTPS requests without timeout",
       "impact": "Logging system hangs on network issues",
-      "status": "PENDING",
+      "status": "FIXED",
       "test_added": false
     },
     {
@@ -650,7 +650,7 @@
       "file": "src/observability/metrics.ts",
       "lines": "152-177",
       "title": "Unnecessary Iteration in Metrics Export",
-      "description": "exportPrometheus() has O(n²) complexity",
+      "description": "exportPrometheus() has O(n\u00b2) complexity",
       "impact": "Slow metrics export with large datasets",
       "status": "PENDING",
       "test_added": false
@@ -676,7 +676,7 @@
       "title": "Optional Dependencies Not Declared",
       "description": "Cloud SDKs required but not in package.json as optionalDependencies",
       "impact": "Runtime errors when users try to use cloud transports without installing dependencies",
-      "status": "PENDING",
+      "status": "FIXED",
       "test_added": false
     },
     {
