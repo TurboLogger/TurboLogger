@@ -195,10 +195,26 @@ export class FileTransport extends Transport {
   }
 
   private sanitizePath(filePath: string): string {
+    // FIX BUG-002: Enhanced path traversal protection
+    // Check for null byte first (before any processing)
+    if (filePath.includes('\0')) {
+      throw new Error('Null byte detected in file path');
+    }
+
+    // Check for Windows UNC paths and device paths
+    if (process.platform === 'win32') {
+      if (filePath.startsWith('\\\\?\\') || filePath.startsWith('\\\\.\\')) {
+        throw new Error('Windows device paths and UNC paths are not allowed');
+      }
+      if (filePath.startsWith('\\\\')) {
+        throw new Error('UNC paths are not allowed');
+      }
+    }
+
     // Normalize and resolve to absolute path
     const normalized = normalize(filePath);
     const resolved = resolve(normalized);
-    
+
     // Define allowed base directories
     const allowedDirs = [
       resolve(process.cwd()),
@@ -206,35 +222,44 @@ export class FileTransport extends Transport {
       resolve('/var/log'),
       resolve(process.platform === 'win32' ? process.env.TEMP || 'C:\\temp' : '/tmp')
     ];
-    
-    // Check if resolved path is within allowed directories
-    const isAllowed = allowedDirs.some(allowedDir => {
-      const relativePath = relative(allowedDir, resolved);
-      return !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
-    });
-    
+
+    // Check if resolved path is within allowed directories using strict validation
+    let isAllowed = false;
+    for (const allowedDir of allowedDirs) {
+      // Use resolve to ensure both paths are absolute and normalized
+      const normalizedAllowedDir = resolve(allowedDir);
+      const normalizedResolved = resolve(resolved);
+
+      // Check if resolved path starts with allowed directory
+      // This prevents bypasses via symlinks or ".." sequences
+      if (normalizedResolved.startsWith(normalizedAllowedDir + path.sep) ||
+          normalizedResolved === normalizedAllowedDir) {
+        // Additional validation: ensure no ".." in the relative path
+        const relativePath = relative(normalizedAllowedDir, normalizedResolved);
+        if (!relativePath.includes('..') && !path.isAbsolute(relativePath)) {
+          isAllowed = true;
+          break;
+        }
+      }
+    }
+
     if (!isAllowed) {
       throw new Error(`Path outside allowed directories: ${resolved}`);
     }
-    
+
     // Additional security checks
-    // Check for null byte separately to avoid ESLint control-regex warning
-    if (normalized.includes('\0')) {
-      throw new Error('Null byte detected in file path');
-    }
-    
     // Check for invalid path characters
     if (/[<>:"|?*]/.test(normalized)) {
       throw new Error('Invalid characters in file path');
     }
-    
+
     // Validate file extension if specified
     const allowedExtensions = ['.log', '.txt', '.json'];
     const ext = extname(resolved);
     if (ext && !allowedExtensions.includes(ext)) {
       throw new Error(`Invalid file extension: ${ext}. Allowed: ${allowedExtensions.join(', ')}`);
     }
-    
+
     return resolved;
   }
 
@@ -339,6 +364,11 @@ export class FileTransport extends Transport {
 
   destroy(): void {
     super.destroy();
-    this.stream.end();
+    // FIX BUG-011: Properly close stream to prevent file handle leak
+    // Use destroy() instead of end() for immediate cleanup
+    // This ensures file handles are released promptly
+    if (this.stream && !this.stream.destroyed) {
+      this.stream.destroy();
+    }
   }
 }

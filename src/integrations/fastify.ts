@@ -107,8 +107,11 @@ export function fastifyTurboLogger(
   fastify.decorateRequest('log', null);
   
   // Generate request ID function
+  // BUG #3 FIX: Use crypto.randomBytes() instead of Math.random() for security
+  // BUG #48 FIX: Use .slice() instead of deprecated .substr()
   const generateRequestId = options.generateRequestId || (() => {
-    return Math.random().toString(36).substr(2, 9);
+    const { randomBytes } = require('crypto');
+    return randomBytes(8).toString('hex').slice(0, 16);
   });
 
   // Request/Response logging hook

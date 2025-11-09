@@ -234,8 +234,9 @@ export class TurboSerializer {
             charLength = 2;
           }
         }
-        
-        const chars = charLength === 2 ? str.substr(i, 2) : str.charAt(i);
+
+        // BUG #48 FIX: Use .slice() instead of deprecated .substr()
+        const chars = charLength === 2 ? str.slice(i, i + 2) : str.charAt(i);
         const encoded = Buffer.from(chars, 'utf8');
         this.ensureCapacity(encoded.length);
         if (this.currentBuffer) {

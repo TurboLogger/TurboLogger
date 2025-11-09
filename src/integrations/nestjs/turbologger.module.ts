@@ -315,7 +315,8 @@ export class TurboLoggerInterceptor implements NestInterceptor {
   }
 
   private generateRequestId(): string {
-    return Math.random().toString(36).substr(2, 9);
+    // BUG #48 FIX: Use .slice() instead of deprecated .substr()
+    return Math.random().toString(36).slice(2, 11);
   }
 
   private getClientIP(request: Request & { ip?: string; connection?: { remoteAddress?: string } }): string {
