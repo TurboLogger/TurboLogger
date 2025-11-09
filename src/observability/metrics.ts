@@ -322,8 +322,19 @@ export class TurboMetrics {
   }
 
   stopPrometheusServer(): void {
+    // FIX BUG-013: Properly clean up HTTP server to prevent resource leaks
     if (this.httpServer) {
-      this.httpServer.close();
+      // Close the server and wait for all connections to finish
+      this.httpServer.close((err) => {
+        if (err) {
+          console.error('Error closing Prometheus metrics server:', err);
+        }
+      });
+
+      // Force close any remaining connections
+      // The server may have keep-alive connections that need explicit termination
+      this.httpServer.closeAllConnections?.();
+
       this.httpServer = undefined;
     }
   }
