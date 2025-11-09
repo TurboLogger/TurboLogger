@@ -432,18 +432,21 @@ export class PerformanceMonitor extends EventEmitter implements IPerformanceMoni
     if (this.isDestroyed) return;
 
     this.isDestroyed = true;
-    
+
+    // BUG #10 FIX: Clear timer references and set to undefined to prevent leaks
     if (this.eventLoopTimer) {
       clearTimeout(this.eventLoopTimer);
+      this.eventLoopTimer = undefined;
     }
-    
+
     if (this.aggregationTimer) {
       clearInterval(this.aggregationTimer);
+      this.aggregationTimer = undefined;
     }
-    
+
     this.reset();
     this.removeAllListeners();
-    
+
     // Force garbage collection of large objects
     setImmediate(() => {
       if (global.gc) {

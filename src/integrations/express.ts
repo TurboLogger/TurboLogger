@@ -353,7 +353,9 @@ function sanitizeObject(obj: any, redactKeys: string[]): any {
 function shouldSkipPath(path: string, skipPaths: (string | RegExp)[]): boolean {
   return skipPaths.some(skipPath => {
     if (typeof skipPath === 'string') {
-      return path === skipPath || path.startsWith(skipPath);
+      // BUG #20 FIX: Prevent partial path matches (e.g., "/api" should not match "/apiv2")
+      // Ensure exact match or path starts with skipPath followed by "/"
+      return path === skipPath || path.startsWith(skipPath + '/');
     } else {
       return skipPath.test(path);
     }

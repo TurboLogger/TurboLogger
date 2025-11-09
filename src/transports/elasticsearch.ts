@@ -407,15 +407,30 @@ export class ElasticsearchTransport extends Transport {
     };
   }
 
-  destroy(): void {
+  async destroy(): Promise<void> {
     super.destroy();
-    
+
     if (this.bulkTimer) {
       clearInterval(this.bulkTimer);
       this.bulkTimer = undefined;
     }
 
     // Flush remaining logs
-    this.flushBulk().catch(console.error);
+    await this.flushBulk().catch(console.error);
+
+    // FIX BUG-014: Close Elasticsearch client connection to prevent connection pool exhaustion
+    if (this.client) {
+      try {
+        // Close the client connection properly
+        // The Elasticsearch client may have a close() method
+        if (typeof (this.client as unknown as { close?: () => Promise<void> }).close === 'function') {
+          await (this.client as unknown as { close: () => Promise<void> }).close();
+        }
+      } catch (error) {
+        console.error('Error closing Elasticsearch client:', error);
+      } finally {
+        this.client = null;
+      }
+    }
   }
 }

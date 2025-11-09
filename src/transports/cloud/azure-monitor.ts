@@ -459,7 +459,8 @@ export class AzureMonitorTransport extends Transport {
   }
 
   private generateId(): string {
-    return Math.random().toString(36).substr(2, 9);
+    // BUG #48 FIX: Use .slice() instead of deprecated .substr()
+    return Math.random().toString(36).slice(2, 11);
   }
 
   private startBatchTimer(): void {

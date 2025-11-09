@@ -53,6 +53,8 @@ export class LogSampler extends EventEmitter {
   private adaptiveOptions?: AdaptiveSamplingOptions;
   private currentAdaptiveRate: number = 1.0;
   private lastAdjustment: number = Date.now();
+  // BUG #12 FIX: Store interval ID to prevent resource leak
+  private adaptiveIntervalId?: NodeJS.Timeout;
 
   constructor(adaptiveOptions?: AdaptiveSamplingOptions) {
     super();
@@ -255,8 +257,9 @@ export class LogSampler extends EventEmitter {
     if (!this.adaptiveOptions) return;
 
     const interval = this.adaptiveOptions.adjustmentInterval;
-    
-    setInterval(() => {
+
+    // BUG #12 FIX: Store interval ID for proper cleanup
+    this.adaptiveIntervalId = setInterval(() => {
       this.adjustAdaptiveRate();
     }, interval);
   }
@@ -350,6 +353,16 @@ export class LogSampler extends EventEmitter {
         dropped: 0
       };
     }
+  }
+
+  // BUG #12 FIX: Add destroy method to clear interval and prevent leaks
+  destroy(): void {
+    if (this.adaptiveIntervalId) {
+      clearInterval(this.adaptiveIntervalId);
+      this.adaptiveIntervalId = undefined;
+    }
+    this.rateLimiters.clear();
+    this.removeAllListeners();
   }
 
   // Predefined sampling strategies

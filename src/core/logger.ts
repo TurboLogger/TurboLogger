@@ -101,6 +101,7 @@ export class TurboLogger {
   private aggregator?: LogAggregator;
   private nativeOptimizer?: NativeOptimizer;
   private classifier?: LogClassifier;
+  private pendingFlushes?: Array<Promise<void>>; // FIX BUG-034: Track pending fatal log flushes
   private static defaultHostname = hostname();
   private static defaultPid = process.pid;
 
@@ -380,7 +381,26 @@ export class TurboLogger {
     this.buffer.write(logObj, level);
 
     if (level === 'fatal') {
-      this.buffer.flush(level).catch(console.error);
+      // FIX BUG-034: Ensure fatal logs are flushed before potential process exit
+      // Note: For guaranteed fatal log delivery, use the async flush() method
+      // and await process exit: await logger.flush(); process.exit(1);
+      // This synchronous approach attempts immediate flush but may not complete
+      // if process.exit() is called immediately after logging
+      const flushPromise = this.buffer.flush(level);
+
+      // Store the promise so it can be awaited by external shutdown handlers
+      if (!this.pendingFlushes) {
+        this.pendingFlushes = [];
+      }
+      this.pendingFlushes.push(flushPromise);
+
+      // Clean up completed promises
+      flushPromise.finally(() => {
+        const index = this.pendingFlushes?.indexOf(flushPromise);
+        if (index !== undefined && index > -1) {
+          this.pendingFlushes?.splice(index, 1);
+        }
+      }).catch(console.error);
     }
   }
 
