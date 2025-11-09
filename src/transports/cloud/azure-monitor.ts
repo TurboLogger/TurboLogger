@@ -491,6 +491,10 @@ export class AzureMonitorTransport extends Transport {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       console.error('Failed to flush batch to Azure Monitor:', errorMessage);
+
+      // FIX BUG-027: Rethrow error to propagate to caller for proper error handling
+      // This ensures write() method properly indicates failure instead of silently succeeding
+      throw error;
     } finally {
       this.isProcessing = false;
     }

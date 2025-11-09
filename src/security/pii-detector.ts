@@ -23,10 +23,13 @@ export class PIIDetector {
   }
 
   private setupDefaultRules(): void {
+    // FIX BUG-001: ReDoS protection - safer regex patterns with bounded quantifiers
+    // All patterns now have explicit length limits to prevent catastrophic backtracking
     const defaultRules: PIIRule[] = [
       {
         name: 'email',
-        pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
+        // Safer email pattern with bounded quantifiers (max 64 chars for local, 255 for domain)
+        pattern: /\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Z|a-z]{2,10}\b/g,
         mask: (match) => {
           // FIX NEW-010: Validate email format before masking to prevent crashes
           const parts = match.split('@');
@@ -50,6 +53,7 @@ export class PIIDetector {
       },
       {
         name: 'ssn',
+        // Already safe - exact length match
         pattern: /\b\d{3}-\d{2}-\d{4}\b/g,
         mask: 'XXX-XX-****',
         confidence: 0.9,
@@ -57,20 +61,23 @@ export class PIIDetector {
       },
       {
         name: 'credit_card',
-        pattern: /\b(?:\d{4}[-\s]?){3}\d{4}\b/g,
+        // Safer credit card pattern - explicit repetition instead of nested quantifiers
+        pattern: /\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g,
         mask: '**** **** **** ****',
         confidence: 0.85,
         description: 'Credit card number'
       },
       {
         name: 'phone',
-        pattern: /\b(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})\b/g,
+        // Safer phone pattern - simplified to avoid complex backtracking
+        pattern: /\b(?:\+?1[-.\s]?)?(?:\([0-9]{3}\)|[0-9]{3})[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}\b/g,
         mask: '(***) ***-****',
         confidence: 0.8,
         description: 'Phone number'
       },
       {
         name: 'ip_address',
+        // Already safe - bounded repetition
         pattern: /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/g,
         mask: 'XXX.XXX.XXX.XXX',
         confidence: 0.7,
@@ -78,6 +85,7 @@ export class PIIDetector {
       },
       {
         name: 'mac_address',
+        // Already safe - exact length match
         pattern: /\b([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})\b/g,
         mask: 'XX:XX:XX:XX:XX:XX',
         confidence: 0.9,
@@ -85,6 +93,7 @@ export class PIIDetector {
       },
       {
         name: 'date_of_birth',
+        // Already safe - exact length match
         pattern: /\b(?:0[1-9]|1[0-2])\/(?:0[1-9]|[12][0-9]|3[01])\/(?:19|20)\d{2}\b/g,
         mask: 'MM/DD/YYYY',
         confidence: 0.75,
@@ -92,20 +101,23 @@ export class PIIDetector {
       },
       {
         name: 'api_key',
-        pattern: /\b[A-Za-z0-9]{32,}\b/g,
+        // FIX BUG-001: Bounded API key length to prevent ReDoS (32-128 chars)
+        pattern: /\b[A-Za-z0-9]{32,128}\b/g,
         mask: '[REDACTED_API_KEY]',
         confidence: 0.6,
         description: 'API key or token'
       },
       {
         name: 'password',
-        pattern: /\b(?:password|passwd|pwd)["']?\s*[:=]\s*["']?([^\s"',;]+)/gi,
+        // FIX BUG-001: Safer password pattern with bounded quantifiers
+        pattern: /\b(?:password|passwd|pwd)["']?[\s]{0,5}[:=][\s]{0,5}["']?([^\s"',;]{1,128})/gi,
         mask: '[REDACTED_PASSWORD]',
         confidence: 0.9,
         description: 'Password field'
       },
       {
         name: 'aws_key',
+        // Already safe - exact length match
         pattern: /AKIA[0-9A-Z]{16}/g,
         mask: '[REDACTED_AWS_KEY]',
         confidence: 0.95,
@@ -113,7 +125,8 @@ export class PIIDetector {
       },
       {
         name: 'jwt_token',
-        pattern: /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
+        // FIX BUG-001: Bounded JWT token parts to prevent ReDoS (max 2048 chars per part)
+        pattern: /eyJ[A-Za-z0-9_-]{1,2048}\.eyJ[A-Za-z0-9_-]{1,2048}\.[A-Za-z0-9_-]{1,2048}/g,
         mask: '[REDACTED_JWT]',
         confidence: 0.9,
         description: 'JWT Token'
@@ -184,6 +197,14 @@ export class PIIDetector {
     detections: PIIDetectionResult[],
     confidenceThreshold: number
   ): string {
+    // FIX BUG-001: Additional ReDoS protection - skip extremely long strings
+    // Strings longer than 100KB are unlikely to need PII detection and could cause ReDoS
+    const MAX_STRING_LENGTH = 100000; // 100KB
+    if (text.length > MAX_STRING_LENGTH) {
+      console.warn(`[PII Detector] Skipping string longer than ${MAX_STRING_LENGTH} chars to prevent ReDoS`);
+      return '[REDACTED_OVERSIZED_CONTENT]';
+    }
+
     let result = text;
     const allRules = [...this.rules, ...this.customPatterns.values()];
 

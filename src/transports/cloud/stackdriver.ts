@@ -400,7 +400,7 @@ export class StackdriverTransport extends Transport {
     }
 
     this.isProcessing = true;
-    
+
     const entriesToSend = this.logQueue.splice(0, this.options.batchSize || 1000);
 
     try {
@@ -408,11 +408,15 @@ export class StackdriverTransport extends Transport {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       console.error('Failed to flush batch to Stackdriver:', errorMessage);
-      
+
       // Re-queue entries on failure (up to a limit)
       if (this.logQueue.length < (this.options.batchSize || 1000) * 2) {
         this.logQueue.unshift(...entriesToSend);
       }
+
+      // FIX BUG-027: Rethrow error to propagate to caller
+      // This ensures write() method properly indicates failure instead of silently succeeding
+      throw error;
     } finally {
       this.isProcessing = false;
     }

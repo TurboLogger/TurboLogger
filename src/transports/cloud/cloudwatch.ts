@@ -416,7 +416,8 @@ export class CloudWatchTransport extends Transport {
 
       if (!isRetriable) {
         console.error('Non-retriable error detected, dropping events:', errorMessage);
-        return; // Don't re-queue on permanent failures
+        // FIX BUG-027: Rethrow error even for non-retriable errors to propagate failure
+        throw error;
       }
 
       // Prevent unbounded growth by implementing proper limits
@@ -435,6 +436,10 @@ export class CloudWatchTransport extends Transport {
         // Drop events to prevent memory exhaustion
         console.warn(`Dropping ${eventsToSend.length} events due to queue overflow or size limits`);
       }
+
+      // FIX BUG-027: Rethrow error to propagate to caller for proper error handling
+      // This ensures write() method properly indicates failure instead of silently succeeding
+      throw error;
     } finally {
       this.isProcessing = false;
     }
