@@ -163,10 +163,40 @@ export class ConsoleTransport extends Transport {
   }
 
   private writeToStream(data: string): Promise<void> {
-    return new Promise((resolve) => {
-      if (!this.stream.write(data)) {
-        this.stream.once('drain', resolve);
+    return new Promise((resolve, reject) => {
+      // FIX NEW-011: Properly handle backpressure and propagate errors
+      // Monitor writable buffer to prevent memory exhaustion
+      const stream = this.stream as NodeJS.WritableStream & {
+        writableLength?: number;
+        writableHighWaterMark?: number;
+      };
+
+      // Check if buffer is getting too large
+      if (stream.writableLength && stream.writableHighWaterMark) {
+        if (stream.writableLength > stream.writableHighWaterMark * 2) {
+          reject(new Error('Stream buffer overflow - backpressure exceeded'));
+          return;
+        }
+      }
+
+      // Set up error handler before write
+      const errorHandler = (err: Error) => {
+        this.stream.removeListener('drain', resolve);
+        reject(err);
+      };
+
+      this.stream.once('error', errorHandler);
+
+      const writeResult = this.stream.write(data);
+
+      if (!writeResult) {
+        // Backpressure detected - wait for drain
+        this.stream.once('drain', () => {
+          this.stream.removeListener('error', errorHandler);
+          resolve();
+        });
       } else {
+        this.stream.removeListener('error', errorHandler);
         resolve();
       }
     });
@@ -234,9 +264,12 @@ export class FileTransport extends Transport {
       // This prevents bypasses via symlinks or ".." sequences
       if (normalizedResolved.startsWith(normalizedAllowedDir + path.sep) ||
           normalizedResolved === normalizedAllowedDir) {
-        // Additional validation: ensure no ".." in the relative path
+        // FIX NEW-001: Additional validation - ensure no ".." in the relative path
+        // Also check that relative path doesn't start with ".." to prevent traversal
         const relativePath = relative(normalizedAllowedDir, normalizedResolved);
-        if (!relativePath.includes('..') && !path.isAbsolute(relativePath)) {
+        if (!relativePath.includes('..') &&
+            !relativePath.startsWith('..') &&
+            !path.isAbsolute(relativePath)) {
           isAllowed = true;
           break;
         }

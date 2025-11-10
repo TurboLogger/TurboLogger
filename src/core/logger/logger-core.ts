@@ -308,6 +308,7 @@ export class TurboLoggerCore extends EventEmitter {
 
   /**
    * Process log entry through plugins and write to buffer
+   * FIX BUG-031: Proper error propagation and failure tracking
    */
   private async processLogEntry(entry: LogEntry): Promise<void> {
     try {
@@ -315,7 +316,18 @@ export class TurboLoggerCore extends EventEmitter {
       let processedEntry = entry;
       for (const plugin of this.plugins.values()) {
         if (plugin.beforeLog) {
-          processedEntry = await plugin.beforeLog(processedEntry);
+          try {
+            processedEntry = await plugin.beforeLog(processedEntry);
+          } catch (pluginError) {
+            // Plugin errors should not prevent logging
+            console.error(`beforeLog plugin failed:`, pluginError);
+            // Emit error event for monitoring
+            this.emit('plugin-error', {
+              plugin: plugin.name || 'unknown',
+              phase: 'beforeLog',
+              error: pluginError
+            });
+          }
         }
       }
 
@@ -325,7 +337,17 @@ export class TurboLoggerCore extends EventEmitter {
       // Run through afterLog plugins
       for (const plugin of this.plugins.values()) {
         if (plugin.afterLog) {
-          await plugin.afterLog(processedEntry);
+          try {
+            await plugin.afterLog(processedEntry);
+          } catch (pluginError) {
+            // afterLog errors should not prevent logging completion
+            console.error(`afterLog plugin failed:`, pluginError);
+            this.emit('plugin-error', {
+              plugin: plugin.name || 'unknown',
+              phase: 'afterLog',
+              error: pluginError
+            });
+          }
         }
       }
 
@@ -337,13 +359,29 @@ export class TurboLoggerCore extends EventEmitter {
         await this.buffer.flush();
       }
     } catch (error) {
-      await this.errorHandler.handle(new TurboLoggerError(
+      // FIX BUG-031: Better error propagation
+      const logError = new TurboLoggerError(
         'Failed to process log entry',
         'LOG_PROCESSING_FAILED',
         'INTERNAL',
         'MEDIUM',
-        { cause: error as Error }
-      ));
+        { cause: error as Error, entry }
+      );
+
+      // Emit error event for monitoring systems
+      this.emit('error', logError);
+
+      // Handle through error handler
+      await this.errorHandler.handle(logError);
+
+      // For fatal logs, rethrow to ensure caller knows about failure
+      if (entry.level === LogLevel.FATAL) {
+        console.error('[TurboLogger] FATAL log processing failed:', error);
+        throw logError;
+      }
+
+      // Log to console as last resort (prevents silent failures)
+      console.error('[TurboLogger] Log processing failed:', error);
     }
   }
 

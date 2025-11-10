@@ -232,22 +232,71 @@ export class SecurityValidator {
   }
 
   private isDangerousKey(key: string): boolean {
+    // FIX BUG-004: Comprehensive list of dangerous properties for prototype pollution prevention
     const dangerousKeys = [
+      // Prototype chain manipulation
       '__proto__',
       'constructor',
       'prototype',
+
+      // Property descriptor manipulation
       '__defineGetter__',
       '__defineSetter__',
       '__lookupGetter__',
       '__lookupSetter__',
+
+      // Object prototype methods that could be exploited
       'hasOwnProperty',
       'isPrototypeOf',
       'propertyIsEnumerable',
       'toString',
-      'valueOf'
+      'valueOf',
+      'toLocaleString',
+
+      // Additional dangerous properties
+      '__ob__',           // Vue.js observable
+      '__v_isRef',        // Vue 3 ref
+      '__v_isReactive',   // Vue 3 reactive
+      '_isVue',           // Vue instance marker
+      '$data',            // Framework data properties
+      '$props',
+      '$options',
+
+      // Node.js specific
+      'inspect',
+      'constructor.prototype',
+
+      // Symbol-related
+      'Symbol',
+      'Symbol.iterator',
+      'Symbol.toStringTag',
+      'Symbol.hasInstance',
+      'Symbol.species',
+
+      // Function properties
+      'apply',
+      'call',
+      'bind',
+      'caller',
+      'callee',
+      'arguments'
     ];
 
-    return dangerousKeys.includes(key) || key.startsWith('__');
+    // Check exact match first
+    if (dangerousKeys.includes(key)) {
+      return true;
+    }
+
+    // Check for patterns that indicate dangerous keys
+    const dangerousPatterns = [
+      /^__/,              // Starts with double underscore
+      /^constructor$/i,   // Case-insensitive constructor
+      /prototype/i,       // Contains prototype
+      /^\$/,              // Starts with $ (framework internals)
+      /^\[\[/,            // Internal slots [[...]]
+    ];
+
+    return dangerousPatterns.some(pattern => pattern.test(key));
   }
 
   private sanitizeString(str: string): string {

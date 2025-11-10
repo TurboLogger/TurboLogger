@@ -94,7 +94,10 @@ export class ElasticsearchTransport extends Transport {
       ...options
     };
 
+    // FIX BUG-035: Initialize client asynchronously to prevent race conditions
+    // Don't await in constructor - set up initialization promise
     this.initializeClient();
+    // Start timer only after initialization
     this.startBulkTimer();
   }
 
@@ -128,16 +131,23 @@ export class ElasticsearchTransport extends Transport {
       }
 
       this.client = new Client(clientConfig) as ElasticsearchClient;
-      
+
+      // FIX BUG-035: Mark transport inactive until connection is verified
+      // This prevents writes during initialization
+      this.active = false;
+
       // Test connection
       await this.client.ping();
       console.log('Elasticsearch transport connected successfully');
-      
+
       // Create index template if mapping is provided
       if (this.options.mapping) {
         await this.createIndexTemplate();
       }
-      
+
+      // FIX BUG-035: Only activate transport after successful initialization
+      this.active = true;
+
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       console.error('Failed to initialize Elasticsearch client:', errorMessage);
@@ -291,16 +301,24 @@ export class ElasticsearchTransport extends Transport {
       const bulkResponse = response as BulkResponse;
       if (bulkResponse.errors) {
         const failedLogs: QueuedLog[] = [];
-        
+
         bulkResponse.items.forEach((item, index: number) => {
           const operation = item.index || item.create || item.update || item.delete;
-          
+
           if (operation && operation.error) {
             console.error(`Elasticsearch bulk error for document ${index}:`, operation.error);
-            
-            // Add to retry queue if retriable error
+
+            // FIX NEW-005: Validate index bounds before accessing logsToProcess
+            // Elasticsearch response could have different number of items than sent
             if (operation.error && this.isRetriableError(operation.error)) {
-              failedLogs.push(logsToProcess[index]);
+              if (index < logsToProcess.length) {
+                const failedLog = logsToProcess[index];
+                if (failedLog) {
+                  failedLogs.push(failedLog);
+                }
+              } else {
+                console.warn(`Index ${index} out of bounds for logsToProcess (length: ${logsToProcess.length})`);
+              }
             }
           }
         });

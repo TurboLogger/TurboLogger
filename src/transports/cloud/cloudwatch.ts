@@ -284,8 +284,55 @@ export class CloudWatchTransport extends Transport {
     const timestamp = new Date().toISOString().slice(0, 10);
     const hostname = os.hostname();
     const randomId = crypto.randomBytes(4).toString('hex'); // Secure random ID
-    
+
     return `${hostname}-${timestamp}-${randomId}`;
+  }
+
+  // FIX NEW-006: Helper method to determine if CloudWatch error is retriable
+  private isRetriableCloudWatchError(error: unknown): boolean {
+    if (!error) return false;
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorCode = (error as any)?.code || (error as any)?.name || '';
+
+    // Retriable errors (transient failures)
+    const retriableErrors = [
+      'ThrottlingException',
+      'ServiceUnavailableException',
+      'RequestLimitExceeded',
+      'ProvisionedThroughputExceededException',
+      'NetworkingError',
+      'TimeoutError',
+      'ECONNRESET',
+      'ETIMEDOUT',
+      'ENOTFOUND'
+    ];
+
+    // Non-retriable errors (permanent failures)
+    const nonRetriableErrors = [
+      'InvalidParameterException',
+      'InvalidSequenceTokenException',
+      'DataAlreadyAcceptedException',
+      'ResourceNotFoundException',
+      'AccessDeniedException',
+      'UnrecognizedClientException',
+      'InvalidSignatureException',
+      'ExpiredTokenException',
+      'MalformedQueryStringException'
+    ];
+
+    // Check if error is explicitly non-retriable
+    if (nonRetriableErrors.some(code => errorCode.includes(code) || errorMessage.includes(code))) {
+      return false;
+    }
+
+    // Check if error is explicitly retriable
+    if (retriableErrors.some(code => errorCode.includes(code) || errorMessage.includes(code))) {
+      return true;
+    }
+
+    // Default: don't retry unknown errors to prevent infinite loops
+    return false;
   }
 
   async write(log: LogData): Promise<void> {
@@ -362,11 +409,21 @@ export class CloudWatchTransport extends Transport {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       console.error('Failed to flush batch to CloudWatch:', errorMessage);
-      
+
+      // FIX NEW-006: Only retry on transient errors, not permanent failures
+      // Check if error is retriable before re-queueing
+      const isRetriable = this.isRetriableCloudWatchError(error);
+
+      if (!isRetriable) {
+        console.error('Non-retriable error detected, dropping events:', errorMessage);
+        // FIX BUG-027: Rethrow error even for non-retriable errors to propagate failure
+        throw error;
+      }
+
       // Prevent unbounded growth by implementing proper limits
       const maxQueueSize = (this.options.batchSize || 10000) * 3;
       const currentQueueSize = this.eventQueue.length;
-      
+
       // Only re-queue if we have room and haven't exceeded retry attempts
       if (currentQueueSize < maxQueueSize && eventsToSend.length <= 1000) {
         // Re-add failed events with exponential backoff
@@ -379,6 +436,10 @@ export class CloudWatchTransport extends Transport {
         // Drop events to prevent memory exhaustion
         console.warn(`Dropping ${eventsToSend.length} events due to queue overflow or size limits`);
       }
+
+      // FIX BUG-027: Rethrow error to propagate to caller for proper error handling
+      // This ensures write() method properly indicates failure instead of silently succeeding
+      throw error;
     } finally {
       this.isProcessing = false;
     }

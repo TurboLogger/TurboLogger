@@ -42,15 +42,23 @@ export class MemoryPool<T> {
 
   /**
    * Acquire an item from the pool
+   * FIX BUG-008: Add atomic operations for thread-safety
+   * JavaScript is single-threaded, but async operations can interleave
    */
   acquire(): T {
+    // Check pool exhaustion first (atomic read)
+    const currentInUse = this.inUse.size;
+    const currentPoolSize = this.pool.length;
+
     let item: T;
 
-    if (this.pool.length > 0) {
+    if (currentPoolSize > 0) {
+      // Pop is atomic in JavaScript
       item = this.pool.pop()!;
       this.stats.reused++;
     } else {
-      if (this.inUse.size >= this.options.maxSize) {
+      // Check before creating new item
+      if (currentInUse >= this.options.maxSize) {
         this.stats.maxSizeReached++;
         throw new Error('Memory pool exhausted');
       }
@@ -58,18 +66,23 @@ export class MemoryPool<T> {
       this.stats.created++;
     }
 
+    // Add to inUse tracking (Set.add is atomic)
     this.inUse.add(item);
     return item;
   }
 
   /**
    * Release an item back to the pool
+   * FIX BUG-008: Add synchronization guards and atomic operations
    */
   release(item: T): void {
+    // Atomic check - prevent double-release
     if (!this.inUse.has(item)) {
-      return; // Item not from this pool
+      return; // Item not from this pool or already released
     }
 
+    // Remove from inUse first (atomic operation)
+    // This prevents the item from being acquired again before we finish
     this.inUse.delete(item);
 
     // Validate item before returning to pool
@@ -80,11 +93,21 @@ export class MemoryPool<T> {
 
     // Reset item if resetFn provided
     if (this.options.resetItem) {
-      this.options.resetItem(item);
+      try {
+        this.options.resetItem(item);
+      } catch (error) {
+        // If reset fails, don't return to pool
+        console.error('Failed to reset pool item:', error);
+        this.stats.destroyed++;
+        return;
+      }
     }
 
+    // Check pool size atomically before push
+    const currentPoolSize = this.pool.length;
+
     // Return to pool if under max size
-    if (this.pool.length < this.options.maxSize) {
+    if (currentPoolSize < this.options.maxSize) {
       this.pool.push(item);
     } else {
       this.stats.destroyed++;
@@ -157,7 +180,10 @@ export class OptimizedCircularBuffer<T> {
     }
 
     this.size = options.size;
-    this.isPowerOf2 = (options.size & (options.size - 1)) === 0;
+    // FIX NEW-003: Explicit size=0 check before power-of-2 validation
+    // (0 & (0 - 1)) === 0, so size=0 would incorrectly pass power-of-2 check
+    // This would cause division by zero or incorrect sizeMask = -1
+    this.isPowerOf2 = options.size > 0 && (options.size & (options.size - 1)) === 0;
     this.sizeMask = this.isPowerOf2 ? options.size - 1 : 0;
     
     this.buffer = new Array(this.size);

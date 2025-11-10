@@ -300,7 +300,19 @@ export class TurboMetrics {
           res.end('Not Found');
         }
       });
-      
+
+      // FIX NEW-007: Add error handler to prevent uncaught 'error' event crashes
+      // Without this, EADDRINUSE or network errors will crash the Node.js process
+      this.httpServer.on('error', (error: Error) => {
+        const err = error as NodeJS.ErrnoException;
+        if (err.code === 'EADDRINUSE') {
+          console.error(`Port ${port} is already in use. Metrics server failed to start.`);
+        } else {
+          console.error('Prometheus metrics server error:', error);
+        }
+        this.httpServer = undefined;
+      });
+
       this.httpServer.listen(port, () => {
         console.log(`Prometheus metrics server listening on port ${port}`);
       });
@@ -310,8 +322,19 @@ export class TurboMetrics {
   }
 
   stopPrometheusServer(): void {
+    // FIX BUG-013: Properly clean up HTTP server to prevent resource leaks
     if (this.httpServer) {
-      this.httpServer.close();
+      // Close the server and wait for all connections to finish
+      this.httpServer.close((err) => {
+        if (err) {
+          console.error('Error closing Prometheus metrics server:', err);
+        }
+      });
+
+      // Force close any remaining connections
+      // The server may have keep-alive connections that need explicit termination
+      this.httpServer.closeAllConnections?.();
+
       this.httpServer = undefined;
     }
   }

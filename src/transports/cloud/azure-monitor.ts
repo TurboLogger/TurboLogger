@@ -121,11 +121,11 @@ export class AzureMonitorTransport extends Transport {
     return new Promise((resolve, reject) => {
       const req = https.request(options, (res) => {
         let data = '';
-        
+
         res.on('data', (chunk) => {
           data += chunk;
         });
-        
+
         res.on('end', () => {
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
             resolve();
@@ -134,7 +134,14 @@ export class AzureMonitorTransport extends Transport {
           }
         });
       });
-      
+
+      // FIX BUG-039: Add timeout to prevent indefinite hangs on network issues
+      // Azure Monitor requests should timeout to prevent resource exhaustion
+      req.setTimeout(30000, () => {
+        req.destroy();
+        reject(new Error('Request timeout: Azure Monitor request exceeded 30s'));
+      });
+
       req.on('error', reject);
       req.write(compressed);
       req.end();
@@ -484,6 +491,10 @@ export class AzureMonitorTransport extends Transport {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       console.error('Failed to flush batch to Azure Monitor:', errorMessage);
+
+      // FIX BUG-027: Rethrow error to propagate to caller for proper error handling
+      // This ensures write() method properly indicates failure instead of silently succeeding
+      throw error;
     } finally {
       this.isProcessing = false;
     }

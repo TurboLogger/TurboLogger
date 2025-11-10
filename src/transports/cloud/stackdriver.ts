@@ -163,11 +163,11 @@ export class StackdriverTransport extends Transport {
       
       const req = https.request(options, (res) => {
         let data = '';
-        
+
         res.on('data', (chunk) => {
           data += chunk;
         });
-        
+
         res.on('end', () => {
           try {
             const response = JSON.parse(data);
@@ -181,7 +181,13 @@ export class StackdriverTransport extends Transport {
           }
         });
       });
-      
+
+      // FIX NEW-004: Add timeout to prevent hanging on network issues
+      req.setTimeout(30000, () => {
+        req.destroy();
+        reject(new Error('Request timeout: OAuth token request exceeded 30s'));
+      });
+
       req.on('error', reject);
       req.write(postData);
       req.end();
@@ -217,20 +223,20 @@ export class StackdriverTransport extends Transport {
       
       const req = https.request(options, (res) => {
         let data = '';
-        
+
         res.on('data', (chunk) => {
           data += chunk;
         });
-        
+
         res.on('end', () => {
           try {
             if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
               resolve(data ? JSON.parse(data) : {});
             } else {
               // const error = JSON.parse(data); // Not used
-              
+
               // Handle retryable errors
-              if (retryCount < (this.options.maxRetries || 3) && 
+              if (retryCount < (this.options.maxRetries || 3) &&
                   res.statusCode && (res.statusCode === 429 || res.statusCode >= 500)) {
                 setTimeout(() => {
                   this.makeStackdriverRequest(method, path, body, retryCount + 1)
@@ -246,7 +252,14 @@ export class StackdriverTransport extends Transport {
           }
         });
       });
-      
+
+      // FIX NEW-004: Add timeout to prevent hanging on network issues
+      // Without timeout, requests can hang indefinitely causing application hang
+      req.setTimeout(30000, () => {
+        req.destroy();
+        reject(new Error('Request timeout: Stackdriver API request exceeded 30s'));
+      });
+
       req.on('error', reject);
       if (bodyData) {
         req.write(bodyData);
@@ -387,7 +400,7 @@ export class StackdriverTransport extends Transport {
     }
 
     this.isProcessing = true;
-    
+
     const entriesToSend = this.logQueue.splice(0, this.options.batchSize || 1000);
 
     try {
@@ -395,11 +408,15 @@ export class StackdriverTransport extends Transport {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       console.error('Failed to flush batch to Stackdriver:', errorMessage);
-      
+
       // Re-queue entries on failure (up to a limit)
       if (this.logQueue.length < (this.options.batchSize || 1000) * 2) {
         this.logQueue.unshift(...entriesToSend);
       }
+
+      // FIX BUG-027: Rethrow error to propagate to caller
+      // This ensures write() method properly indicates failure instead of silently succeeding
+      throw error;
     } finally {
       this.isProcessing = false;
     }

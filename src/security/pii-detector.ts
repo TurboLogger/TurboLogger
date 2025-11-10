@@ -23,13 +23,29 @@ export class PIIDetector {
   }
 
   private setupDefaultRules(): void {
+    // FIX BUG-001: ReDoS protection - safer regex patterns with bounded quantifiers
+    // All patterns now have explicit length limits to prevent catastrophic backtracking
     const defaultRules: PIIRule[] = [
       {
         name: 'email',
-        pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
+        // Safer email pattern with bounded quantifiers (max 64 chars for local, 255 for domain)
+        pattern: /\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Z|a-z]{2,10}\b/g,
         mask: (match) => {
-          const [local, domain] = match.split('@');
-          const [name, tld] = domain.split('.');
+          // FIX NEW-010: Validate email format before masking to prevent crashes
+          const parts = match.split('@');
+          if (parts.length !== 2) return '***@***.***';
+
+          const [local, domain] = parts;
+          if (!local || !domain) return '***@***.***';
+
+          const domainParts = domain.split('.');
+          if (domainParts.length < 2) return '***@***.***';
+
+          const [name, ...tldParts] = domainParts;
+          const tld = tldParts.join('.');
+
+          if (!name || !tld) return '***@***.***';
+
           return `${local.charAt(0)}***@${name.charAt(0)}***.${tld}`;
         },
         confidence: 0.95,
@@ -37,6 +53,7 @@ export class PIIDetector {
       },
       {
         name: 'ssn',
+        // Already safe - exact length match
         pattern: /\b\d{3}-\d{2}-\d{4}\b/g,
         mask: 'XXX-XX-****',
         confidence: 0.9,
@@ -44,20 +61,23 @@ export class PIIDetector {
       },
       {
         name: 'credit_card',
-        pattern: /\b(?:\d{4}[-\s]?){3}\d{4}\b/g,
+        // Safer credit card pattern - explicit repetition instead of nested quantifiers
+        pattern: /\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g,
         mask: '**** **** **** ****',
         confidence: 0.85,
         description: 'Credit card number'
       },
       {
         name: 'phone',
-        pattern: /\b(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})\b/g,
+        // Safer phone pattern - simplified to avoid complex backtracking
+        pattern: /\b(?:\+?1[-.\s]?)?(?:\([0-9]{3}\)|[0-9]{3})[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}\b/g,
         mask: '(***) ***-****',
         confidence: 0.8,
         description: 'Phone number'
       },
       {
         name: 'ip_address',
+        // Already safe - bounded repetition
         pattern: /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/g,
         mask: 'XXX.XXX.XXX.XXX',
         confidence: 0.7,
@@ -65,6 +85,7 @@ export class PIIDetector {
       },
       {
         name: 'mac_address',
+        // Already safe - exact length match
         pattern: /\b([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})\b/g,
         mask: 'XX:XX:XX:XX:XX:XX',
         confidence: 0.9,
@@ -72,6 +93,7 @@ export class PIIDetector {
       },
       {
         name: 'date_of_birth',
+        // Already safe - exact length match
         pattern: /\b(?:0[1-9]|1[0-2])\/(?:0[1-9]|[12][0-9]|3[01])\/(?:19|20)\d{2}\b/g,
         mask: 'MM/DD/YYYY',
         confidence: 0.75,
@@ -79,20 +101,23 @@ export class PIIDetector {
       },
       {
         name: 'api_key',
-        pattern: /\b[A-Za-z0-9]{32,}\b/g,
+        // FIX BUG-001: Bounded API key length to prevent ReDoS (32-128 chars)
+        pattern: /\b[A-Za-z0-9]{32,128}\b/g,
         mask: '[REDACTED_API_KEY]',
         confidence: 0.6,
         description: 'API key or token'
       },
       {
         name: 'password',
-        pattern: /\b(?:password|passwd|pwd)["']?\s*[:=]\s*["']?([^\s"',;]+)/gi,
+        // FIX BUG-001: Safer password pattern with bounded quantifiers
+        pattern: /\b(?:password|passwd|pwd)["']?[\s]{0,5}[:=][\s]{0,5}["']?([^\s"',;]{1,128})/gi,
         mask: '[REDACTED_PASSWORD]',
         confidence: 0.9,
         description: 'Password field'
       },
       {
         name: 'aws_key',
+        // Already safe - exact length match
         pattern: /AKIA[0-9A-Z]{16}/g,
         mask: '[REDACTED_AWS_KEY]',
         confidence: 0.95,
@@ -100,7 +125,8 @@ export class PIIDetector {
       },
       {
         name: 'jwt_token',
-        pattern: /eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
+        // FIX BUG-001: Bounded JWT token parts to prevent ReDoS (max 2048 chars per part)
+        pattern: /eyJ[A-Za-z0-9_-]{1,2048}\.eyJ[A-Za-z0-9_-]{1,2048}\.[A-Za-z0-9_-]{1,2048}/g,
         mask: '[REDACTED_JWT]',
         confidence: 0.9,
         description: 'JWT Token'
@@ -171,32 +197,49 @@ export class PIIDetector {
     detections: PIIDetectionResult[],
     confidenceThreshold: number
   ): string {
+    // FIX BUG-001: Additional ReDoS protection - skip extremely long strings
+    // Strings longer than 100KB are unlikely to need PII detection and could cause ReDoS
+    const MAX_STRING_LENGTH = 100000; // 100KB
+    if (text.length > MAX_STRING_LENGTH) {
+      console.warn(`[PII Detector] Skipping string longer than ${MAX_STRING_LENGTH} chars to prevent ReDoS`);
+      return '[REDACTED_OVERSIZED_CONTENT]';
+    }
+
     let result = text;
     const allRules = [...this.rules, ...this.customPatterns.values()];
-    
+
     for (const rule of allRules) {
       if (rule.confidence >= confidenceThreshold) {
         const matches = text.match(rule.pattern);
         if (matches) {
-          for (const match of matches) {
-            const masked = typeof rule.mask === 'function' 
-              ? rule.mask(match) 
+          // FIX NEW-012: Track replaced positions to avoid multiple replacements
+          // Using replaceAll would replace all instances, not just the detected ones
+          // Process matches in reverse order to maintain correct indices
+          const uniqueMatches = Array.from(new Set(matches)).reverse();
+
+          for (const match of uniqueMatches) {
+            const masked = typeof rule.mask === 'function'
+              ? rule.mask(match)
               : rule.mask;
-            
-            result = result.replace(match, masked);
-            
-            detections.push({
-              field: path,
-              type: rule.name,
-              confidence: rule.confidence,
-              original: match,
-              masked
-            });
+
+            // Replace only the first occurrence to avoid double-masking
+            const index = result.indexOf(match);
+            if (index !== -1) {
+              result = result.substring(0, index) + masked + result.substring(index + match.length);
+
+              detections.push({
+                field: path,
+                type: rule.name,
+                confidence: rule.confidence,
+                original: match,
+                masked
+              });
+            }
           }
         }
       }
     }
-    
+
     return result;
   }
 
@@ -229,17 +272,33 @@ export class PIIDetector {
 
   private maskEmail(email: string): string {
     try {
-      const [local, domain] = email.split('@');
-      if (local && domain) {
-        const maskedLocal = local.charAt(0) + '*'.repeat(Math.max(0, local.length - 2)) + local.charAt(local.length - 1);
-        const [domainName, tld] = domain.split('.');
-        const maskedDomain = domainName.charAt(0) + '*'.repeat(Math.max(0, domainName.length - 2)) + domainName.charAt(domainName.length - 1);
-        return `${maskedLocal}@${maskedDomain}.${tld}`;
-      }
+      // FIX NEW-010: Validate email format before processing
+      const parts = email.split('@');
+      if (parts.length !== 2) return '***@***.***';
+
+      const [local, domain] = parts;
+      if (!local || !domain) return '***@***.***';
+
+      const domainParts = domain.split('.');
+      if (domainParts.length < 2) return '***@***.***';
+
+      const maskedLocal = local.charAt(0) + '*'.repeat(Math.max(0, local.length - 2)) + local.charAt(local.length - 1);
+
+      // Handle multi-level domains (e.g., example.co.uk)
+      const tld = domainParts[domainParts.length - 1];
+      const domainName = domainParts.slice(0, -1).join('.');
+
+      if (!domainName || !tld) return '***@***.***';
+
+      const maskedDomain = domainName.charAt(0) + '*'.repeat(Math.max(0, domainName.length - 2)) + domainName.charAt(domainName.length - 1);
+      return `${maskedLocal}@${maskedDomain}.${tld}`;
     } catch {}
-    
+
     return '***@***.***';
   }
+
+  // FIX NEW-009: Cache compiled regexes to avoid recompilation on every call
+  private compiledPatternCache = new WeakMap<PIIRule, RegExp>();
 
   analyzeText(text: string): Array<{
     type: string;
@@ -253,13 +312,21 @@ export class PIIDetector {
       position: { start: number; end: number };
       value: string;
     }> = [];
-    
+
     const allRules = [...this.rules, ...this.customPatterns.values()];
-    
+
     for (const rule of allRules) {
+      // FIX NEW-009: Use cached regex instead of recompiling every time
+      let regex = this.compiledPatternCache.get(rule);
+      if (!regex) {
+        regex = new RegExp(rule.pattern.source, rule.pattern.flags);
+        this.compiledPatternCache.set(rule, regex);
+      }
+
+      // Reset lastIndex for global regexes to ensure clean state
+      regex.lastIndex = 0;
+
       let match;
-      const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
-      
       while ((match = regex.exec(text)) !== null) {
         results.push({
           type: rule.name,
@@ -270,11 +337,11 @@ export class PIIDetector {
           },
           value: match[0]
         });
-        
+
         if (!rule.pattern.global) break;
       }
     }
-    
+
     return results.sort((a, b) => b.confidence - a.confidence);
   }
 
