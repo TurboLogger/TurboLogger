@@ -296,14 +296,16 @@ export class LogAggregator extends EventEmitter {
 
     const now = Date.now();
     const windowStart = now - this.options.interval;
-    
+
     // Filter logs within the window
     const windowLogs = logs.filter(log => (log._timestamp ?? 0) >= windowStart);
-    
+
+    // NEW-BUG-003 FIX: Validate windowLogs is non-empty before accessing firstLog
     if (windowLogs.length === 0) return;
 
     // Extract group information
     const firstLog = windowLogs[0];
+    if (!firstLog) return; // Extra safety check
     const group: Record<string, string | number | boolean> = {};
     for (const field of this.options.groupBy) {
       const value = this.getNestedValue(firstLog, field);
@@ -394,6 +396,15 @@ export class LogAggregator extends EventEmitter {
   }
 
   private percentile(sortedValues: number[], percentile: number): number {
+    // BUG-041 FIX: Validate array is non-empty to prevent undefined access
+    if (sortedValues.length === 0) {
+      return 0;
+    }
+
+    if (sortedValues.length === 1) {
+      return sortedValues[0];
+    }
+
     const index = (percentile / 100) * (sortedValues.length - 1);
     const lower = Math.floor(index);
     const upper = Math.ceil(index);

@@ -185,14 +185,17 @@ export class LogSampler extends EventEmitter {
       const currentTime = now.getHours() * 100 + now.getMinutes();
       const start = this.parseTime(condition.timeWindow.start);
       const end = this.parseTime(condition.timeWindow.end);
-      
+
       if (start <= end) {
+        // Normal window: exclude if outside range
         if (currentTime < start || currentTime > end) {
           return false;
         }
       } else {
-        // Overnight window (e.g., 22:00 to 06:00)
-        if (currentTime < start && currentTime > end) {
+        // BUG-021 FIX: Overnight window (e.g., 22:00 to 06:00)
+        // Include if time >= start OR time <= end
+        // Exclude if time is in the gap between end and start
+        if (currentTime > end && currentTime < start) {
           return false;
         }
       }

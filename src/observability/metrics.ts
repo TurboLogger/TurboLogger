@@ -1,6 +1,6 @@
+// BUG-047 FIX: Removed unused import
 import { EventEmitter } from 'events';
 import * as http from 'http';
-// import { createHash } from 'crypto';
 
 export interface MetricDefinition {
   name: string;
