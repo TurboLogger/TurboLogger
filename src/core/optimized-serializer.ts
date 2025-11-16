@@ -93,22 +93,44 @@ export class OptimizedSerializer {
         metadata
       };
     } catch (error) {
-      // Fallback to standard JSON.stringify for safety
-      const fallbackStart = process.hrtime.bigint();
-      const fallbackResult = JSON.stringify(obj);
-      const fallbackEnd = process.hrtime.bigint();
-      
-      return {
-        serialized: fallbackResult,
-        size: Buffer.byteLength(fallbackResult, 'utf8'),
-        duration: Number(fallbackEnd - fallbackStart) / 1000000,
-        chunks: 0,
-        metadata: {
-          circularReferences: 0,
-          truncatedStrings: 0,
-          depth: 0
-        }
-      };
+      // BUG-032 FIX: Fallback to standard JSON.stringify with error handling
+      try {
+        const fallbackStart = process.hrtime.bigint();
+        // Handle BigInt and other non-JSON-serializable values
+        const fallbackResult = JSON.stringify(obj, (key, value) => {
+          if (typeof value === 'bigint') {
+            return value.toString() + 'n';
+          }
+          return value;
+        });
+        const fallbackEnd = process.hrtime.bigint();
+
+        return {
+          serialized: fallbackResult,
+          size: Buffer.byteLength(fallbackResult, 'utf8'),
+          duration: Number(fallbackEnd - fallbackStart) / 1000000,
+          chunks: 0,
+          metadata: {
+            circularReferences: 0,
+            truncatedStrings: 0,
+            depth: 0
+          }
+        };
+      } catch (fallbackError) {
+        // Last resort: return error representation
+        const errorMsg = `[Serialization Error: ${error instanceof Error ? error.message : 'Unknown error'}]`;
+        return {
+          serialized: JSON.stringify({ error: errorMsg, type: typeof obj }),
+          size: Buffer.byteLength(errorMsg, 'utf8'),
+          duration: 0,
+          chunks: 0,
+          metadata: {
+            circularReferences: 0,
+            truncatedStrings: 0,
+            depth: 0
+          }
+        };
+      }
     }
   }
 

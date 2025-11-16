@@ -159,7 +159,12 @@ export class SecurityManager implements ISecurityManager {
         resolve('/var/log'),
         resolve(require('os').tmpdir())
       ],
-      piiPatterns: config.piiPatterns ?? DEFAULT_PII_PATTERNS,
+      // NEW-BUG-002 FIX: Clone PII patterns to avoid shared regex state mutation
+      // Each instance needs its own regex objects to prevent lastIndex conflicts
+      piiPatterns: (config.piiPatterns ?? DEFAULT_PII_PATTERNS).map(p => ({
+        ...p,
+        pattern: new RegExp(p.pattern.source, p.pattern.flags)
+      })),
       maxInputLength: config.maxInputLength ?? 100000,
       sanitizationRules: config.sanitizationRules ?? DEFAULT_SANITIZATION_RULES
     };

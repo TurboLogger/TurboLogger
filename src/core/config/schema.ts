@@ -1,13 +1,37 @@
-import { z } from 'zod';
+// BUG-055 FIX: Handle missing zod dependency gracefully
+let z: any;
+let zodAvailable = false;
+
+try {
+  const zodModule = require('zod');
+  z = zodModule.z;
+  zodAvailable = true;
+} catch (error) {
+  // Zod not available - provide minimal mock for type compatibility
+  console.warn('Warning: zod package not installed. Configuration validation will be skipped. Install zod for validation: npm install zod');
+  z = {
+    object: () => ({ parse: (config: any) => config, default: (fn: any) => ({ parse: (c: any) => c }) }),
+    string: () => ({ optional: () => ({}) }),
+    number: () => ({ min: () => ({ max: () => ({ default: () => ({}) }) }), default: () => ({}) }),
+    boolean: () => ({ default: () => ({}) }),
+    enum: () => ({ default: () => ({}) }),
+    array: () => ({ default: () => ({}) }),
+    record: () => ({ default: () => ({}) }),
+    function: () => ({ optional: () => ({}) }),
+    unknown: () => ({}),
+    infer: (schema: any) => any as never,
+    ZodError: class ZodError extends Error {}
+  };
+}
 
 // Performance configuration schema
-const performanceSchema = z.object({
+const performanceSchema = zodAvailable ? z.object({
   mode: z.enum(['standard', 'fast', 'ultra']).default('fast'),
   bufferSize: z.number().min(256).max(65536).default(4096),
   flushInterval: z.number().min(10).max(10000).default(100),
   zeroAllocation: z.boolean().default(false),
   enableOptimizations: z.boolean().default(true),
-});
+}) : { parse: (config: any) => config || { mode: 'fast', bufferSize: 4096, flushInterval: 100, zeroAllocation: false, enableOptimizations: true } };
 
 // Output configuration schema
 const outputSchema = z.object({
@@ -109,11 +133,26 @@ export type ObservabilityConfig = z.infer<typeof observabilitySchema>;
 export type TransportConfig = z.infer<typeof transportSchema>;
 
 export function validateConfig(config: unknown): TurboLoggerConfig {
+  // BUG-055 FIX: If zod is not available, skip validation and return config as-is with defaults
+  if (!zodAvailable) {
+    return {
+      name: undefined,
+      context: {},
+      performance: { mode: 'fast', bufferSize: 4096, flushInterval: 100, zeroAllocation: false, enableOptimizations: true },
+      output: { format: 'json', level: 'info', timestamp: true, hostname: true, pid: true, stackTrace: false },
+      security: { encryption: { enabled: false, algorithm: 'aes-256-gcm' }, piiMasking: { enabled: false, autoDetect: false, compliance: [], customRules: [] }, signing: { enabled: false, algorithm: 'hmac-sha256' } },
+      observability: { metrics: { enabled: false, provider: 'prometheus', interval: 60000 }, tracing: { enabled: false, provider: 'otel', sampleRate: 1 } },
+      transports: [],
+      plugins: [],
+      ...config as any
+    } as TurboLoggerConfig;
+  }
+
   try {
     return configSchema.parse(config);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const errorMessages = error.issues.map((err: any) => 
+      const errorMessages = error.issues.map((err: any) =>
         `${err.path.join('.')}: ${err.message}`
       ).join('\n');
       throw new Error(`Configuration validation failed:\n${errorMessages}`);
@@ -123,5 +162,8 @@ export function validateConfig(config: unknown): TurboLoggerConfig {
 }
 
 export function createDefaultConfig(): TurboLoggerConfig {
+  if (!zodAvailable) {
+    return validateConfig({});
+  }
   return configSchema.parse({});
 }

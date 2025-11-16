@@ -316,14 +316,23 @@ export class PerformanceMonitor extends EventEmitter implements IPerformanceMoni
   }
 
   private percentile(sorted: number[], p: number): number {
+    // BUG-019 FIX: Validate array is non-empty to prevent undefined access
+    if (sorted.length === 0) {
+      return 0;
+    }
+
+    if (sorted.length === 1) {
+      return sorted[0];
+    }
+
     const index = (sorted.length - 1) * p;
     const lower = Math.floor(index);
     const upper = Math.ceil(index);
-    
+
     if (lower === upper) {
       return sorted[lower];
     }
-    
+
     const weight = index - lower;
     return sorted[lower] * (1 - weight) + sorted[upper] * weight;
   }

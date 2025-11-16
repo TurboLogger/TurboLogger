@@ -83,10 +83,13 @@ export class PerformanceMonitor extends EventEmitter {
     const now = Date.now();
     const cpuUsage = process.cpuUsage(this.lastCpuUsage);
     const memoryUsage = process.memoryUsage();
-    // const heapStats = v8.getHeapStatistics();
-    
+    // BUG-045 FIX: Removed commented-out dead code
+
     const elapsedMs = now - this.lastTimestamp;
-    const cpuPercent = ((cpuUsage.user + cpuUsage.system) / 1000 / elapsedMs) * 100;
+    // BUG-042 FIX: Prevent division by zero - if elapsedMs is 0, set cpuPercent to 0
+    const cpuPercent = elapsedMs > 0
+      ? ((cpuUsage.user + cpuUsage.system) / 1000 / elapsedMs) * 100
+      : 0;
 
     this.lastCpuUsage = process.cpuUsage();
     this.lastTimestamp = now;
