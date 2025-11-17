@@ -469,14 +469,41 @@ export class TurboLogger {
   }
 
   child(context: Record<string, unknown>): TurboLogger {
-    const childOptions = { ...this.options };
-    // Create new transport instances to avoid circular references
+    // BUG-007 FIX: Deep clone options and transports to prevent shared state mutation
+    // Previous shallow copy caused child logger modifications to affect parent
+    const childOptions = JSON.parse(JSON.stringify(this.options));
+
+    // For transports, we need a proper deep clone that preserves class instances
     const childTransports = this.transports.map(transport => {
-      // Clone transports to prevent shared state
       const proto = Object.getPrototypeOf(transport) as object;
-      return Object.assign(Object.create(proto), transport) as Transport;
+      const cloned = Object.create(proto) as Transport;
+
+      // Deep copy all own properties
+      for (const key of Object.keys(transport)) {
+        const value = (transport as any)[key];
+
+        // Handle different types appropriately
+        if (value === null || value === undefined) {
+          (cloned as any)[key] = value;
+        } else if (typeof value === 'function') {
+          // Don't clone functions, use reference
+          (cloned as any)[key] = value;
+        } else if (value instanceof Date) {
+          (cloned as any)[key] = new Date(value);
+        } else if (Array.isArray(value)) {
+          (cloned as any)[key] = [...value];
+        } else if (typeof value === 'object') {
+          // For complex objects, create a new copy (not deep clone to avoid circular refs)
+          (cloned as any)[key] = { ...value };
+        } else {
+          // Primitive values (string, number, boolean)
+          (cloned as any)[key] = value;
+        }
+      }
+
+      return cloned;
     });
-    
+
     return new TurboLogger({
       ...childOptions,
       name: this.name,
@@ -492,15 +519,41 @@ export class TurboLogger {
       const mergedContext = { ...currentContext, ...context };
       return asyncLocalStorage.run(mergedContext, fn);
     } else {
+      // NEW-BUG-001 FIX: Clone transports to prevent shared state (same issue as BUG-007)
       // Return new logger instance with context
       const currentContext = asyncLocalStorage.getStore() || {};
       const mergedContext = { ...currentContext, ...context };
-      
+
+      // Use the same transport cloning logic as child() method
+      const clonedTransports = this.transports.map(transport => {
+        const proto = Object.getPrototypeOf(transport) as object;
+        const cloned = Object.create(proto) as Transport;
+
+        for (const key of Object.keys(transport)) {
+          const value = (transport as any)[key];
+          if (value === null || value === undefined) {
+            (cloned as any)[key] = value;
+          } else if (typeof value === 'function') {
+            (cloned as any)[key] = value;
+          } else if (value instanceof Date) {
+            (cloned as any)[key] = new Date(value);
+          } else if (Array.isArray(value)) {
+            (cloned as any)[key] = [...value];
+          } else if (typeof value === 'object') {
+            (cloned as any)[key] = { ...value };
+          } else {
+            (cloned as any)[key] = value;
+          }
+        }
+
+        return cloned;
+      });
+
       return new TurboLogger({
         ...this.options,
         name: this.name,
         context: { ...this.context, ...mergedContext },
-        transports: this.transports
+        transports: clonedTransports
       });
     }
   }

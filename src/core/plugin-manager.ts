@@ -128,6 +128,13 @@ export class PluginManager implements IPluginManager {
         continue;
       }
 
+      // BUG-016 FIX: Validate that plugin has process method before calling
+      if (typeof registration.plugin.process !== 'function') {
+        console.error(`Plugin '${pluginName}' does not implement process() method`);
+        registration.enabled = false;
+        continue;
+      }
+
       try {
         processedLog = await registration.plugin.process(processedLog);
       } catch (error) {

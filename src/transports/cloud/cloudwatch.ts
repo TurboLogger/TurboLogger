@@ -283,7 +283,9 @@ export class CloudWatchTransport extends Transport {
     // Generate stream name with timestamp and hostname
     const timestamp = new Date().toISOString().slice(0, 10);
     const hostname = os.hostname();
-    const randomId = crypto.randomBytes(4).toString('hex'); // Secure random ID
+    // NEW-BUG-010 FIX: Use 16 bytes (128 bits) for strong uniqueness in high-throughput scenarios
+    // 4 bytes was insufficient and could cause ID collisions. 16 bytes provides 2^128 possibilities.
+    const randomId = crypto.randomBytes(16).toString('hex'); // Secure random ID
 
     return `${hostname}-${timestamp}-${randomId}`;
   }
@@ -458,9 +460,16 @@ export class CloudWatchTransport extends Transport {
       }
       
       const response = await this.makeAWSRequest('PutLogEvents', params);
-      
+
+      // BUG-040 FIX: Validate AWS API response structure before accessing properties
+      // AWS SDK responses can vary and missing validation causes runtime errors
+      if (!response || typeof response !== 'object') {
+        console.warn('[CloudWatch] Invalid response from PutLogEvents:', response);
+        return;
+      }
+
       // Update sequence token for next batch
-      if (response && response.nextSequenceToken) {
+      if (response.nextSequenceToken && typeof response.nextSequenceToken === 'string') {
         this.sequenceToken = response.nextSequenceToken;
       }
       
