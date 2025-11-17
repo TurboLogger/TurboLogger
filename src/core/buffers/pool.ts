@@ -209,8 +209,18 @@ export class OptimizedCircularBuffer<T> {
    * Write an item to the buffer (optimized for performance)
    */
   write(item: T): boolean {
+    // BUG-043 FIX: Special handling for size=1 edge case
+    // For size=1, both bitwise and modulo work, but we make it explicit for clarity
+    if (this.size === 1) {
+      this.buffer[0] = item;
+      this.count = 1;
+      this.writeIndex = 1;
+      this.readIndex = 0;
+      return true;
+    }
+
     // Fast path for power-of-2 sizes
-    const writeIdx = this.isPowerOf2 
+    const writeIdx = this.isPowerOf2
       ? this.writeIndex & this.sizeMask
       : this.writeIndex % this.size;
 

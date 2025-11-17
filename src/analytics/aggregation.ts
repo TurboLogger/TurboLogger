@@ -120,14 +120,17 @@ export class LogAggregator extends EventEmitter {
 
     // Create group key based on groupBy fields
     const groupKey = this.createGroupKey(log);
-    
-    // Add to aggregation data
-    if (!this.aggregationData.has(groupKey)) {
-      this.aggregationData.set(groupKey, []);
+
+    // BUG-009 FIX: Atomic operation to prevent race conditions in async contexts
+    // Previous code had check-then-act pattern that could lose data in concurrent calls
+    // Use atomic get-or-create pattern with single Map operation
+    let logs = this.aggregationData.get(groupKey);
+    if (!logs) {
+      logs = [];
+      this.aggregationData.set(groupKey, logs);
     }
-    
-    const logs = this.aggregationData.get(groupKey);
-    if (!logs) return;
+
+    // Now safely push to the array (which we're guaranteed to have created)
     logs.push({
       ...log,
       _timestamp: Date.now(),

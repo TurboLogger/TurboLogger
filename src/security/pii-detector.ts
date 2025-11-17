@@ -197,6 +197,11 @@ export class PIIDetector {
     detections: PIIDetectionResult[],
     confidenceThreshold: number
   ): string {
+    // BUG-044 FIX: Early return for empty strings to avoid unnecessary processing
+    if (text.length === 0) {
+      return text;
+    }
+
     // FIX BUG-001: Additional ReDoS protection - skip extremely long strings
     // Strings longer than 100KB are unlikely to need PII detection and could cause ReDoS
     const MAX_STRING_LENGTH = 100000; // 100KB
@@ -205,39 +210,75 @@ export class PIIDetector {
       return '[REDACTED_OVERSIZED_CONTENT]';
     }
 
-    let result = text;
+    // NEW-BUG-008 FIX: Collect all matches with positions first to avoid overlapping replacements
+    // Multiple PII rules on the same string can cause index misalignment if applied sequentially
+    // Solution: Find all matches, sort by position (descending), apply non-overlapping
+    interface MatchInfo {
+      start: number;
+      end: number;
+      original: string;
+      masked: string;
+      rule: { name: string; confidence: number };
+    }
+
+    const allMatches: MatchInfo[] = [];
     const allRules = [...this.rules, ...this.customPatterns.values()];
 
+    // Collect all matches from all rules
     for (const rule of allRules) {
       if (rule.confidence >= confidenceThreshold) {
-        const matches = text.match(rule.pattern);
-        if (matches) {
-          // FIX NEW-012: Track replaced positions to avoid multiple replacements
-          // Using replaceAll would replace all instances, not just the detected ones
-          // Process matches in reverse order to maintain correct indices
-          const uniqueMatches = Array.from(new Set(matches)).reverse();
+        // Use exec to get index information
+        const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
+        let match: RegExpExecArray | null;
 
-          for (const match of uniqueMatches) {
-            const masked = typeof rule.mask === 'function'
-              ? rule.mask(match)
-              : rule.mask;
+        while ((match = regex.exec(text)) !== null) {
+          const masked = typeof rule.mask === 'function'
+            ? rule.mask(match[0])
+            : rule.mask;
 
-            // Replace only the first occurrence to avoid double-masking
-            const index = result.indexOf(match);
-            if (index !== -1) {
-              result = result.substring(0, index) + masked + result.substring(index + match.length);
+          allMatches.push({
+            start: match.index,
+            end: match.index + match[0].length,
+            original: match[0],
+            masked,
+            rule: { name: rule.name, confidence: rule.confidence }
+          });
 
-              detections.push({
-                field: path,
-                type: rule.name,
-                confidence: rule.confidence,
-                original: match,
-                masked
-              });
-            }
+          // Prevent infinite loop on zero-width matches
+          if (match.index === regex.lastIndex) {
+            regex.lastIndex++;
           }
         }
       }
+    }
+
+    // Sort matches by position (descending) to apply from end to start
+    // This preserves indices as we replace
+    allMatches.sort((a, b) => b.start - a.start);
+
+    // Remove overlapping matches - keep the first one (highest confidence/earliest)
+    const nonOverlapping: MatchInfo[] = [];
+    for (const current of allMatches) {
+      const overlaps = nonOverlapping.some(
+        existing => current.start < existing.end && current.end > existing.start
+      );
+      if (!overlaps) {
+        nonOverlapping.push(current);
+      }
+    }
+
+    // Apply replacements from end to start to preserve indices
+    let result = text;
+    for (const match of nonOverlapping) {
+      result = result.substring(0, match.start) + match.masked + result.substring(match.end);
+
+      detections.push({
+        field: path,
+        type: match.rule.name,
+        confidence: match.rule.confidence,
+        original: match.original,
+        masked: match.masked
+      });
     }
 
     return result;

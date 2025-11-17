@@ -128,6 +128,13 @@ export class PluginManager implements IPluginManager {
         continue;
       }
 
+      // BUG-016 FIX: Validate that plugin has process method before calling
+      if (typeof registration.plugin.process !== 'function') {
+        console.error(`Plugin '${pluginName}' does not implement process() method`);
+        registration.enabled = false;
+        continue;
+      }
+
       try {
         processedLog = await registration.plugin.process(processedLog);
       } catch (error) {
@@ -235,6 +242,19 @@ export class PluginManager implements IPluginManager {
     this.pluginOrder = [];
     this.context = undefined;
     this.isDestroyed = true;
+  }
+
+  // BUG-030 FIX: Add reset() method to allow reinitialization after destroy()
+  reset(): void {
+    // Clear existing state
+    this.plugins.clear();
+    this.pluginOrder = [];
+    this.context = undefined;
+
+    // Reset destroyed flag to allow reuse
+    this.isDestroyed = false;
+
+    console.log('[PluginManager] Reset complete - ready for new plugins');
   }
 
   // Plugin health and diagnostics

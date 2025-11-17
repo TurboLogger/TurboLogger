@@ -117,8 +117,11 @@ const DEFAULT_SANITIZATION_RULES: SanitizationRule[] = [
   },
   {
     name: 'sql_injection',
-    pattern: /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION)\b)/gi,
-    replacement: '[SQL_KEYWORD]',
+    // BUG-005 FIX: More specific SQL injection pattern requiring SQL syntax context
+    // Old pattern flagged legitimate text like "I need to SELECT a book"
+    // New pattern requires SQL syntax like "SELECT...FROM", "INSERT...INTO", "DROP TABLE", etc.
+    pattern: /(\b(SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+.+\s+SET|DELETE\s+FROM|DROP\s+(TABLE|DATABASE)|CREATE\s+(TABLE|DATABASE)|ALTER\s+TABLE|EXEC\s*\(|UNION\s+(ALL\s+)?SELECT)\b)/gi,
+    replacement: '[SQL_PATTERN]',
     enabled: true
   },
   {

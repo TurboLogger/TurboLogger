@@ -150,6 +150,13 @@ export class CircularBuffer<T = unknown> {
   }
 
   clear(): void {
+    // NEW-BUG-011 FIX: Check for pending flush operation before clearing
+    // Clearing while flushing causes data loss and inconsistent state
+    if (this.flushing) {
+      console.warn('[CircularBuffer] Cannot clear while flush is in progress');
+      return;
+    }
+
     this.buffer.fill(undefined);
     this.writeIndex = 0;
     this.readIndex = 0;
