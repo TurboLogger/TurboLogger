@@ -336,7 +336,22 @@ export class LogClassifier {
       const extractor = this.featureExtractors.get(featureName);
       if (extractor) {
         try {
-          features[featureName] = extractor(log);
+          const extracted = extractor(log);
+
+          // BUG-025 FIX: Validate extractor return type before assigning
+          // Extractors should return number, string, or boolean for ML features
+          if (typeof extracted === 'number' ||
+              typeof extracted === 'string' ||
+              typeof extracted === 'boolean') {
+            features[featureName] = extracted;
+          } else if (extracted !== null && extracted !== undefined) {
+            // Attempt to coerce to number if possible
+            const coerced = Number(extracted);
+            if (!isNaN(coerced)) {
+              features[featureName] = coerced;
+            }
+            // Otherwise skip invalid feature value
+          }
         } catch {
           // Skip failed extractions
         }

@@ -244,6 +244,19 @@ export class PluginManager implements IPluginManager {
     this.isDestroyed = true;
   }
 
+  // BUG-030 FIX: Add reset() method to allow reinitialization after destroy()
+  reset(): void {
+    // Clear existing state
+    this.plugins.clear();
+    this.pluginOrder = [];
+    this.context = undefined;
+
+    // Reset destroyed flag to allow reuse
+    this.isDestroyed = false;
+
+    console.log('[PluginManager] Reset complete - ready for new plugins');
+  }
+
   // Plugin health and diagnostics
   getHealthStatus(): Record<string, any> {
     const status: Record<string, any> = {

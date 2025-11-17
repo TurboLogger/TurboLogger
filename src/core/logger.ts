@@ -512,6 +512,12 @@ export class TurboLogger {
     });
   }
 
+  // BUG-026 FIX: Use function overloads for type-safe API
+  // Overload 1: When fn is provided, run it with context and return its result
+  withContext<T>(context: Record<string, unknown>, fn: () => T | Promise<T>): T | Promise<T>;
+  // Overload 2: When fn is omitted, return a new logger with context
+  withContext(context: Record<string, unknown>): TurboLogger;
+  // Implementation
   withContext<T>(context: Record<string, unknown>, fn?: () => T | Promise<T>): T | Promise<T> | TurboLogger {
     if (fn) {
       // Async context with callback
