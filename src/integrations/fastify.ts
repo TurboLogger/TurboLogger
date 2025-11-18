@@ -254,7 +254,9 @@ export function fastifyTurboLogger(
 function shouldSkipPath(path: string, skipPaths: (string | RegExp)[]): boolean {
   return skipPaths.some(skipPath => {
     if (typeof skipPath === 'string') {
-      return path === skipPath || path.startsWith(skipPath);
+      // FIX NEW-BUG-004: Prevent partial path matches (e.g., "/api" should not match "/apiv2")
+      // Ensure exact match or path starts with skipPath followed by "/"
+      return path === skipPath || path.startsWith(skipPath + '/');
     } else {
       return skipPath.test(path);
     }

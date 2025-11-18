@@ -290,6 +290,9 @@ export class ErrorHandler {
 }
 
 // Recovery strategies
+// FIX BUG-046: Document that these are placeholder implementations
+// WARNING: Most recovery strategies below are STUB IMPLEMENTATIONS that only log to console
+// They do not perform actual recovery actions. In production, implement proper recovery logic.
 export const RecoveryStrategies = {
   retryAfterDelay: (delay: number): RecoveryStrategy => ({
     name: 'retryAfterDelay',
@@ -297,30 +300,36 @@ export const RecoveryStrategies = {
     execute: () => new Promise(resolve => setTimeout(resolve, delay)),
   }),
 
+  // STUB: Does not actually switch to fallback transport
   fallbackTransport: (fallbackTransport: unknown): RecoveryStrategy => ({
     name: 'fallbackTransport',
-    description: 'Switch to fallback transport',
+    description: 'Switch to fallback transport (STUB - not implemented)',
     execute: (error) => {
-      // Implementation would switch to fallback transport
-      console.log(`Switching to fallback transport for error: ${error.code}`);
+      // TODO: Implement actual fallback transport switching
+      console.warn(`[STUB] Would switch to fallback transport for error: ${error.code}`);
+      console.warn('[STUB] Recovery strategy not fully implemented');
     },
   }),
 
+  // STUB: Does not actually clear buffers
   clearBuffer: (): RecoveryStrategy => ({
     name: 'clearBuffer',
-    description: 'Clear buffer to prevent memory issues',
+    description: 'Clear buffer to prevent memory issues (STUB - not implemented)',
     execute: (error) => {
-      // Implementation would clear relevant buffers
-      console.log(`Clearing buffer for error: ${error.code}`);
+      // TODO: Implement actual buffer clearing logic
+      console.warn(`[STUB] Would clear buffer for error: ${error.code}`);
+      console.warn('[STUB] Recovery strategy not fully implemented');
     },
   }),
 
+  // STUB: Does not actually degrade functionality
   gracefulDegradation: (): RecoveryStrategy => ({
     name: 'gracefulDegradation',
-    description: 'Reduce logging level or disable features',
+    description: 'Reduce logging level or disable features (STUB - not implemented)',
     execute: (error) => {
-      // Implementation would reduce functionality
-      console.log(`Graceful degradation for error: ${error.code}`);
+      // TODO: Implement actual graceful degradation logic
+      console.warn(`[STUB] Would apply graceful degradation for error: ${error.code}`);
+      console.warn('[STUB] Recovery strategy not fully implemented');
     },
   }),
 };

@@ -120,6 +120,9 @@ export class PluginManager implements IPluginManager {
 
     let processedLog = log;
 
+    // BUG-050 ANALYSIS: Sequential processing is REQUIRED for plugin pipeline
+    // Each plugin transforms the log output from the previous plugin
+    // Cannot use Promise.all() as plugins depend on each other's output
     // Process through plugins in priority order
     for (const pluginName of this.pluginOrder) {
       const registration = this.plugins.get(pluginName);
@@ -195,6 +198,8 @@ export class PluginManager implements IPluginManager {
       throw new Error('Plugin context not set');
     }
 
+    // FIX BUG-037: Aggregate plugin initialization errors for proper error reporting
+    const initErrors: Array<{ plugin: string; error: Error }> = [];
     const initPromises: Promise<void>[] = [];
 
     for (const [name, registration] of this.plugins) {
@@ -211,12 +216,25 @@ export class PluginManager implements IPluginManager {
           registration.error = error;
           registration.enabled = false;
           console.error(`Failed to initialize plugin '${name}':`, error);
+          // FIX BUG-037: Collect errors for aggregation
+          initErrors.push({ plugin: name, error: error as Error });
         });
 
       initPromises.push(initPromise);
     }
 
     await Promise.all(initPromises);
+
+    // FIX BUG-037: Throw aggregated error if any plugins failed to initialize
+    if (initErrors.length > 0) {
+      const errorMessage = `Plugin initialization failed for ${initErrors.length} plugin(s): ${
+        initErrors.map(e => e.plugin).join(', ')
+      }`;
+      const aggregatedError = new Error(errorMessage);
+      // Attach detailed error information
+      (aggregatedError as any).pluginErrors = initErrors;
+      throw aggregatedError;
+    }
   }
 
   async destroy(): Promise<void> {

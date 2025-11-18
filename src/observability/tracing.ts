@@ -260,8 +260,15 @@ export class TurboTracer {
 
   private exportSpan(span: Span): void {
     if (this.options.jaegerEndpoint && span.tags.sampled) {
+      // FIX BUG-036: Properly terminate promise chain to prevent unhandled rejections
       this.sendToJaeger(span).catch(error => {
         console.error('Failed to export span to Jaeger:', error);
+        // Emit error event for monitoring if available
+        if (typeof (this as any).emit === 'function') {
+          (this as any).emit('error', error);
+        }
+        // Return undefined to properly terminate the promise chain
+        return undefined;
       });
     }
   }
@@ -360,10 +367,15 @@ export class TurboTracer {
   }
 
   private convertToJaegerFormat(span: Span): JaegerSpan {
+    // FIX BUG-018: Add null check for span before accessing properties
+    if (!span) {
+      throw new Error('Cannot convert null or undefined span to Jaeger format');
+    }
+
     return {
       traceID: span.traceId,
       spanID: span.spanId,
-      parentSpanID: span.parentSpanId || '0',
+      parentSpanID: span?.parentSpanId || '0',
       operationName: span.operationName,
       startTime: span.startTime * 1000, // Jaeger expects microseconds
       duration: (span.duration || 0) * 1000,

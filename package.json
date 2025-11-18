@@ -99,8 +99,8 @@
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
     "@types/ws": "^8.5.10",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
-    "@typescript-eslint/parser": "^6.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
     "commander": "^11.1.0",
     "eslint": "^8.0.0",
     "glob": "^10.3.0",
@@ -109,14 +109,13 @@
     "ts-jest": "^29.1.0",
     "typescript": "^5.0.0"
   },
-  "dependencies": {},
   "optionalDependencies": {
-    "@elastic/elasticsearch": "^8.0.0",
     "@aws-sdk/client-cloudwatch-logs": "^3.0.0",
-    "@google-cloud/logging": "^11.0.0",
     "@azure/monitor-opentelemetry-exporter": "^1.0.0",
+    "@elastic/elasticsearch": "^8.0.0",
+    "@google-cloud/logging": "^11.0.0",
+    "fastify": "^4.24.0",
     "ws": "^8.14.0",
-    "zod": "^3.22.0",
-    "fastify": "^4.24.0"
+    "zod": "^3.22.0"
   }
 }

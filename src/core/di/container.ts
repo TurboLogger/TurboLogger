@@ -175,9 +175,20 @@ export class DIContainer {
         definition.dependencies.map(dep => this.resolve(dep))
       );
 
+      // FIX BUG-028: Validate dependency count matches factory expectations
+      // Note: JavaScript/TypeScript allows parameter mismatches, but we warn to catch config errors
+      const factoryLength = definition.factory.length;
+      if (factoryLength > 0 && dependencies.length !== factoryLength) {
+        console.warn(
+          `[DIContainer] Service '${name}': Factory expects ${factoryLength} parameter(s) ` +
+          `but ${dependencies.length} dependenc(y|ies) provided. ` +
+          `This may cause runtime errors if factory relies on all parameters.`
+        );
+      }
+
       // Create instance
       const instance = await definition.factory(...dependencies);
-      
+
       return instance as T;
     } finally {
       this.circularDetection.delete(name);

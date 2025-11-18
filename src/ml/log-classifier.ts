@@ -321,6 +321,9 @@ export class LogClassifier {
   }
 
   private safeRegexTest(regex: RegExp, text: string): boolean {
+    // BUG-053 ANALYSIS: RegExp patterns are already optimally cached
+    // Patterns are compiled once in initializePatterns() and stored in this.patterns Map
+    // This method reuses pre-compiled patterns, no recompilation occurs
     try {
       return regex.test(text);
     } catch {

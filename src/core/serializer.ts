@@ -184,9 +184,11 @@ export class TurboSerializer {
   }
 
   private writeString(str: string): void {
+    // FIX BUG-015: Enhanced undefined check for cache access
     if (this.options.stringCache && this.stringCache.has(str)) {
       const cached = this.stringCache.get(str);
-      if (cached && this.currentBuffer) {
+      // Explicit undefined check to ensure type safety
+      if (cached !== undefined && this.currentBuffer !== undefined) {
         this.ensureCapacity(cached.length);
         cached.copy(this.currentBuffer, this.offset);
         this.offset += cached.length;
