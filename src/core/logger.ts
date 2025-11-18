@@ -265,6 +265,16 @@ export class TurboLogger {
 
   private shouldLog(level: LogLevelName): boolean {
     const configuredLevel = this.options.output.level as LogLevelName;
+
+    // FIX BUG-023: Validate both levels exist in LOG_LEVELS before accessing
+    // This prevents type confusion if level formats change or invalid levels are passed
+    if (!LOG_LEVELS[level] || !LOG_LEVELS[configuredLevel]) {
+      console.error(
+        `[TurboLogger] Invalid log level comparison: level="${level}", configuredLevel="${configuredLevel}"`
+      );
+      return false; // Reject invalid log levels
+    }
+
     return LOG_LEVELS[level].value >= LOG_LEVELS[configuredLevel].value;
   }
 
