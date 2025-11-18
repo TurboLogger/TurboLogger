@@ -150,29 +150,34 @@ class MetricRegistry {
   }
 
   exportPrometheus(): string {
+    // FIX BUG-052: Optimize to single-pass collection instead of O(n²)
+    // Use array push for better performance than multiple join operations
     const lines: string[] = [];
-    
+
     for (const metric of this.metrics.values()) {
       lines.push(`# HELP ${metric.name} ${metric.help}`);
       lines.push(`# TYPE ${metric.name} ${metric.type}`);
-      
-      const values = this.getValues(metric.name);
-      for (const value of values) {
-        const labelsStr = value.labels 
-          ? Object.entries(value.labels)
-              .map(([k, v]) => `${k}="${v}"`)
-              .join(',')
-          : '';
-        
-        const metricLine = labelsStr 
-          ? `${metric.name}{${labelsStr}} ${value.value}`
-          : `${metric.name} ${value.value}`;
-        
-        lines.push(metricLine);
+
+      // Direct access to values map instead of calling getValues()
+      const metricValues = this.values.get(metric.name);
+      if (metricValues && metricValues.length > 0) {
+        for (const value of metricValues) {
+          const labelsStr = value.labels
+            ? Object.entries(value.labels)
+                .map(([k, v]) => `${k}="${v}"`)
+                .join(',')
+            : '';
+
+          const metricLine = labelsStr
+            ? `${metric.name}{${labelsStr}} ${value.value}`
+            : `${metric.name} ${value.value}`;
+
+          lines.push(metricLine);
+        }
       }
       lines.push('');
     }
-    
+
     return lines.join('\n');
   }
 

@@ -104,28 +104,29 @@ export class ConsoleTransport extends Transport {
   }
 
   private formatPretty(log: LogData): string {
+    // FIX BUG-051: Use array join for better performance with string concatenation
     const { levelLabel, msg, time, err, ...rest } = log;
     const timestamp = new Date(time).toISOString();
     const levelStr = this.getLevelColor(levelLabel);
-    
-    let output = `[${timestamp}] ${levelStr}`;
-    
+
+    const parts: string[] = [`[${timestamp}] ${levelStr}`];
+
     if (msg) {
-      output += `: ${msg}`;
+      parts.push(`: ${msg}`);
     }
-    
+
     if (err) {
-      output += `\n  Error: ${err.message}`;
+      parts.push(`\n  Error: ${err.message}`);
       if (err.stack) {
-        output += `\n  Stack: ${err.stack}`;
+        parts.push(`\n  Stack: ${err.stack}`);
       }
     }
-    
+
     if (Object.keys(rest).length > 0) {
-      output += `\n  ${JSON.stringify(rest, null, 2).replace(/\n/g, '\n  ')}`;
+      parts.push(`\n  ${JSON.stringify(rest, null, 2).replace(/\n/g, '\n  ')}`);
     }
-    
-    return output;
+
+    return parts.join('');
   }
 
   private formatCompact(log: LogData): string {

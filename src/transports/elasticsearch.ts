@@ -102,8 +102,21 @@ export class ElasticsearchTransport extends Transport {
   }
 
   private async initializeClient(): Promise<void> {
+    // FIX BUG-038: Add proper error handling for optional @elastic/elasticsearch dependency
+    let Client;
     try {
-      const { Client } = require('@elastic/elasticsearch');
+      const elasticsearchModule = require('@elastic/elasticsearch');
+      Client = elasticsearchModule.Client;
+    } catch (requireError) {
+      const error = new Error(
+        'Elasticsearch transport requires the @elastic/elasticsearch package. ' +
+        'Install it with: npm install @elastic/elasticsearch'
+      );
+      console.error('[ElasticsearchTransport] Initialization failed:', error.message);
+      throw error;
+    }
+
+    try {
       
       const clientConfig: Record<string, unknown> = {
         node: this.options.node,
