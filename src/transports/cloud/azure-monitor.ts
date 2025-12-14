@@ -1,6 +1,6 @@
 import { Transport, TransportOptions, LogData } from '../../core/transport';
 import * as https from 'https';
-// import * as crypto from 'crypto'; // Not used
+import { randomBytes } from 'crypto';
 import * as zlib from 'zlib';
 import { promisify } from 'util';
 
@@ -466,8 +466,9 @@ export class AzureMonitorTransport extends Transport {
   }
 
   private generateId(): string {
-    // BUG #48 FIX: Use .slice() instead of deprecated .substr()
-    return Math.random().toString(36).slice(2, 11);
+    // BUG-NEW-002 FIX: Use crypto.randomBytes() instead of Math.random() for security
+    // Math.random() is not cryptographically secure and can be predictable
+    return randomBytes(6).toString('hex');
   }
 
   private startBatchTimer(): void {

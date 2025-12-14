@@ -79,17 +79,49 @@ export class SimpleLogger {
     return logLevel >= currentLevel;
   }
   
-  private createEntry(level: string, message: string, context?: Record<string, unknown>): SimpleLogEntry {
+  // BUG-NEW-003 FIX: Helper to properly serialize messages including Error objects
+  private serializeMessage(message: unknown): string {
+    // Handle Error objects specifically since they don't serialize with JSON.stringify
+    if (message instanceof Error) {
+      return message.message || message.toString();
+    }
+    // Handle null/undefined
+    if (message === null || message === undefined) {
+      return String(message);
+    }
+    // Handle objects - try to serialize them
+    if (typeof message === 'object') {
+      try {
+        return JSON.stringify(message);
+      } catch {
+        return String(message);
+      }
+    }
+    // For strings and other primitives, just convert to string
+    return String(message);
+  }
+
+  private createEntry(level: string, message: unknown, context?: Record<string, unknown>): SimpleLogEntry {
     const entry: SimpleLogEntry = {
       timestamp: this.config.enableTimestamp ? new Date().toISOString() : '',
       level,
-      message,
+      message: this.serializeMessage(message),
     };
-    
-    if (context) {
+
+    // BUG-NEW-003 FIX: If message is an Error, automatically add error details to context
+    if (message instanceof Error) {
+      entry.context = {
+        ...context,
+        error: {
+          name: message.name,
+          message: message.message,
+          stack: message.stack,
+        },
+      };
+    } else if (context) {
       entry.context = context;
     }
-    
+
     if (this.config.enableMetadata) {
       entry.metadata = {
         logger: this.config.name,
@@ -97,11 +129,12 @@ export class SimpleLogger {
         hostname: hostname(),
       };
     }
-    
+
     return entry;
   }
   
-  private log(level: string, message: string, context?: Record<string, unknown>): void {
+  // BUG-NEW-003 FIX: Accept unknown type for message to handle Error objects
+  private log(level: string, message: unknown, context?: Record<string, unknown>): void {
     if (!this.shouldLog(level)) {
       return;
     }
@@ -123,27 +156,28 @@ export class SimpleLogger {
     });
   }
   
-  trace(message: string, context?: Record<string, unknown>): void {
+  // BUG-NEW-003 FIX: Accept any message type to handle Error objects and other types
+  trace(message: unknown, context?: Record<string, unknown>): void {
     this.log('trace', message, context);
   }
-  
-  debug(message: string, context?: Record<string, unknown>): void {
+
+  debug(message: unknown, context?: Record<string, unknown>): void {
     this.log('debug', message, context);
   }
-  
-  info(message: string, context?: Record<string, unknown>): void {
+
+  info(message: unknown, context?: Record<string, unknown>): void {
     this.log('info', message, context);
   }
-  
-  warn(message: string, context?: Record<string, unknown>): void {
+
+  warn(message: unknown, context?: Record<string, unknown>): void {
     this.log('warn', message, context);
   }
-  
-  error(message: string, context?: Record<string, unknown>): void {
+
+  error(message: unknown, context?: Record<string, unknown>): void {
     this.log('error', message, context);
   }
-  
-  fatal(message: string, context?: Record<string, unknown>): void {
+
+  fatal(message: unknown, context?: Record<string, unknown>): void {
     this.log('fatal', message, context);
   }
   
