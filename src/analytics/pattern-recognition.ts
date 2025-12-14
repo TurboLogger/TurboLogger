@@ -88,6 +88,9 @@ export class PatternRecognitionEngine extends EventEmitter {
   private frequencyBaselines: Map<string, number[]> = new Map();
   private sequencePatterns: Map<string, number> = new Map();
   private correlationMatrix: Map<string, Map<string, number>> = new Map();
+  // BUG-NEW-001 FIX: Store interval IDs to allow proper cleanup
+  private periodicAnalysisIntervalId?: NodeJS.Timeout;
+  private patternDiscoveryIntervalId?: NodeJS.Timeout;
 
   constructor(options: Partial<PatternAnalysisOptions> = {}) {
     super();
@@ -563,11 +566,12 @@ export class PatternRecognitionEngine extends EventEmitter {
   }
 
   private startPeriodicAnalysis(): void {
-    setInterval(() => {
+    // BUG-NEW-001 FIX: Store interval IDs to allow cleanup in destroy()
+    this.periodicAnalysisIntervalId = setInterval(() => {
       this.runPeriodicAnalysis();
     }, 60000); // Every minute
 
-    setInterval(() => {
+    this.patternDiscoveryIntervalId = setInterval(() => {
       this.discoverNewPatterns();
     }, 300000); // Every 5 minutes
   }
@@ -806,5 +810,30 @@ export class PatternRecognitionEngine extends EventEmitter {
       recentAnomalies: 0, // Would track recent anomaly count
       systemHealth
     };
+  }
+
+  // BUG-NEW-001 FIX: Add destroy() method to properly clean up resources
+  destroy(): void {
+    // Clear periodic analysis interval
+    if (this.periodicAnalysisIntervalId) {
+      clearInterval(this.periodicAnalysisIntervalId);
+      this.periodicAnalysisIntervalId = undefined;
+    }
+
+    // Clear pattern discovery interval
+    if (this.patternDiscoveryIntervalId) {
+      clearInterval(this.patternDiscoveryIntervalId);
+      this.patternDiscoveryIntervalId = undefined;
+    }
+
+    // Clear all data structures
+    this.patterns.clear();
+    this.logHistory = [];
+    this.frequencyBaselines.clear();
+    this.sequencePatterns.clear();
+    this.correlationMatrix.clear();
+
+    // Remove all event listeners
+    this.removeAllListeners();
   }
 }

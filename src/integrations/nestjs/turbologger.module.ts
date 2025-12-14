@@ -1,5 +1,6 @@
 // NestJS TurboLogger Module
 import { TurboLogger } from '../../core/logger';
+import { randomBytes } from 'crypto';
 
 // Mock NestJS types to avoid dependency
 type DynamicModule = {
@@ -315,8 +316,9 @@ export class TurboLoggerInterceptor implements NestInterceptor {
   }
 
   private generateRequestId(): string {
-    // BUG #48 FIX: Use .slice() instead of deprecated .substr()
-    return Math.random().toString(36).slice(2, 11);
+    // BUG-NEW-002 FIX: Use crypto.randomBytes() instead of Math.random() for security
+    // Math.random() is not cryptographically secure and can be predictable
+    return randomBytes(6).toString('hex');
   }
 
   private getClientIP(request: Request & { ip?: string; connection?: { remoteAddress?: string } }): string {
