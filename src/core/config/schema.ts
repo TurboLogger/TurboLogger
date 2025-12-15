@@ -1,16 +1,19 @@
 // BUG-055 FIX: Handle missing zod dependency gracefully
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let z: any;
 let zodAvailable = false;
 
 try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const zodModule = require('zod');
   z = zodModule.z;
   zodAvailable = true;
-} catch (error) {
+} catch {
   // Zod not available - provide minimal mock for type compatibility
   console.warn('Warning: zod package not installed. Configuration validation will be skipped. Install zod for validation: npm install zod');
   z = {
-    object: () => ({ parse: (config: any) => config, default: (fn: any) => ({ parse: (c: any) => c }) }),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+    object: () => ({ parse: (config: any) => config, default: (_fn: any) => ({ parse: (c: any) => c }) }),
     string: () => ({ optional: () => ({}) }),
     number: () => ({ min: () => ({ max: () => ({ default: () => ({}) }) }), default: () => ({}) }),
     boolean: () => ({ default: () => ({}) }),
@@ -19,7 +22,8 @@ try {
     record: () => ({ default: () => ({}) }),
     function: () => ({ optional: () => ({}) }),
     unknown: () => ({}),
-    infer: (schema: any) => any as never,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    infer: () => undefined as any,
     ZodError: class ZodError extends Error {}
   };
 }
@@ -125,12 +129,20 @@ export const configSchema = z.object({
   errorHandler: z.function().optional(),
 });
 
-export type TurboLoggerConfig = z.infer<typeof configSchema>;
-export type PerformanceConfig = z.infer<typeof performanceSchema>;
-export type OutputConfig = z.infer<typeof outputSchema>;
-export type SecurityConfig = z.infer<typeof securitySchema>;
-export type ObservabilityConfig = z.infer<typeof observabilitySchema>;
-export type TransportConfig = z.infer<typeof transportSchema>;
+// Type definitions - when zod is available, these are inferred from schema
+// When zod is not available, they fall back to 'any' type
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type TurboLoggerConfig = typeof configSchema extends { _output: infer T } ? T : any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type PerformanceConfig = typeof performanceSchema extends { _output: infer T } ? T : any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type OutputConfig = typeof outputSchema extends { _output: infer T } ? T : any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type SecurityConfig = typeof securitySchema extends { _output: infer T } ? T : any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ObservabilityConfig = typeof observabilitySchema extends { _output: infer T } ? T : any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type TransportConfig = typeof transportSchema extends { _output: infer T } ? T : any;
 
 export function validateConfig(config: unknown): TurboLoggerConfig {
   // BUG-055 FIX: If zod is not available, skip validation and return config as-is with defaults
@@ -150,9 +162,11 @@ export function validateConfig(config: unknown): TurboLoggerConfig {
 
   try {
     return configSchema.parse(config);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      const errorMessages = error.issues.map((err: any) =>
+  } catch (error: unknown) {
+    // BUG FIX: Proper type checking for unknown error type
+    if (zodAvailable && error instanceof z.ZodError) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const errorMessages = (error as any).issues.map((err: any) =>
         `${err.path.join('.')}: ${err.message}`
       ).join('\n');
       throw new Error(`Configuration validation failed:\n${errorMessages}`);

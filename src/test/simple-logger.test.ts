@@ -1,10 +1,10 @@
 import { test, describe } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { 
-  SimpleLogger, 
-  BufferedTransport, 
-  ConsoleTransport, 
-  createSimpleLogger 
+// BUG FIX: Remove unused ConsoleTransport import
+import {
+  SimpleLogger,
+  BufferedTransport,
+  createSimpleLogger
 } from '../simple-logger.js';
 
 describe('SimpleLogger', () => {

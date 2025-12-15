@@ -460,7 +460,8 @@ export class ElasticsearchTransport extends Transport {
       } catch (error) {
         console.error('Error closing Elasticsearch client:', error);
       } finally {
-        this.client = null;
+        // BUG FIX: Use undefined instead of null to match client type
+        this.client = undefined;
       }
     }
   }
