@@ -97,7 +97,8 @@ export class OptimizedSerializer {
       try {
         const fallbackStart = process.hrtime.bigint();
         // Handle BigInt and other non-JSON-serializable values
-        const fallbackResult = JSON.stringify(obj, (key, value) => {
+        // BUG FIX: Prefix unused 'key' parameter with underscore
+        const fallbackResult = JSON.stringify(obj, (_key, value) => {
           if (typeof value === 'bigint') {
             return value.toString() + 'n';
           }

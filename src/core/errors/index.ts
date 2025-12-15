@@ -57,7 +57,9 @@ export class TurboLoggerError extends Error {
       recoveryStrategies?: RecoveryStrategy[];
     } = {}
   ) {
-    super(message, { cause: options.cause });
+    // BUG FIX: ES2020 Error constructor doesn't accept options parameter
+    // Use only message for super(), handle cause separately
+    super(message);
     
     this.name = 'TurboLoggerError';
     this.code = code;
@@ -301,7 +303,8 @@ export const RecoveryStrategies = {
   }),
 
   // STUB: Does not actually switch to fallback transport
-  fallbackTransport: (fallbackTransport: unknown): RecoveryStrategy => ({
+  // BUG FIX: Prefix unused parameter with underscore to indicate intentional unused
+  fallbackTransport: (_fallbackTransport: unknown): RecoveryStrategy => ({
     name: 'fallbackTransport',
     description: 'Switch to fallback transport (STUB - not implemented)',
     execute: (error) => {

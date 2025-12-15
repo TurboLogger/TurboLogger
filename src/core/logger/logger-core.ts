@@ -7,9 +7,11 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { hostname } from 'os';
 import { EventEmitter } from 'events';
 
-import { TurboLoggerConfig, validateConfig, createDefaultConfig } from '../config/schema';
+// BUG FIX: Remove unused import 'createDefaultConfig'
+import { TurboLoggerConfig, validateConfig } from '../config/schema';
 import { DIContainer } from '../di/container';
-import { TurboLoggerError, ErrorHandler, errorHandler } from '../errors';
+// BUG FIX: Import ErrorCategory and ErrorSeverity to fix type mismatch errors
+import { TurboLoggerError, ErrorHandler, errorHandler, ErrorCategory, ErrorSeverity } from '../errors';
 import { OptimizedCircularBuffer } from '../buffers/pool';
 
 export enum LogLevel {
@@ -79,7 +81,8 @@ export class TurboLoggerCore extends EventEmitter {
   private context: Record<string, unknown> = {};
   private transports = new Map<string, Transport>();
   private plugins = new Map<string, LoggerPlugin>();
-  private buffer: OptimizedCircularBuffer<LogEntry>;
+  // BUG FIX: Use definite assignment assertion since buffer is initialized in initializeBuffer()
+  private buffer!: OptimizedCircularBuffer<LogEntry>;
   private asyncStorage = new AsyncLocalStorage<Record<string, unknown>>();
   private container: DIContainer;
   private errorHandler: ErrorHandler;
@@ -114,7 +117,8 @@ export class TurboLoggerCore extends EventEmitter {
       size: this.config.performance.bufferSize,
       flushInterval: this.config.performance.flushInterval,
       useMemoryPool: this.config.performance.zeroAllocation,
-      onFlush: async (entries) => this.flushEntries(entries),
+      // BUG FIX: Cast entries to LogEntry[] to fix type mismatch
+      onFlush: async (entries) => this.flushEntries(entries as LogEntry[]),
       itemFactory: () => ({
         level: LogLevel.INFO,
         levelName: 'info',
@@ -123,14 +127,17 @@ export class TurboLoggerCore extends EventEmitter {
       } as LogEntry),
       itemReset: (entry) => {
         // Reset entry for reuse
-        (entry as LogEntry).level = LogLevel.INFO;
-        (entry as LogEntry).levelName = 'info';
-        (entry as LogEntry).message = undefined;
-        (entry as LogEntry).timestamp = 0;
-        (entry as LogEntry).context = undefined;
-        (entry as LogEntry).error = undefined;
-        Object.keys((entry as LogEntry).metadata).forEach(key => {
-          delete (entry as LogEntry).metadata[key];
+        const logEntry = entry as LogEntry;
+        logEntry.level = LogLevel.INFO;
+        logEntry.levelName = 'info';
+        logEntry.message = undefined;
+        logEntry.timestamp = 0;
+        logEntry.context = undefined;
+        logEntry.error = undefined;
+        // BUG FIX: Use type assertion to allow string index access for deletion
+        const metadata = logEntry.metadata as Record<string, unknown>;
+        Object.keys(metadata).forEach(key => {
+          delete metadata[key];
         });
       },
     });
@@ -154,11 +161,12 @@ export class TurboLoggerCore extends EventEmitter {
         this.transports.set('console', consoleTransport);
       }
     } catch (error) {
+      // BUG FIX: Use ErrorCategory and ErrorSeverity enums instead of string literals
       await this.errorHandler.handle(new TurboLoggerError(
         'Failed to setup transports',
         'TRANSPORT_SETUP_FAILED',
-        'TRANSPORT',
-        'HIGH',
+        ErrorCategory.TRANSPORT,
+        ErrorSeverity.HIGH,
         { cause: error as Error }
       ));
     }
@@ -237,11 +245,12 @@ export class TurboLoggerCore extends EventEmitter {
         }
       }
     } catch (error) {
+      // BUG FIX: Use ErrorCategory and ErrorSeverity enums instead of string literals
       await this.errorHandler.handle(new TurboLoggerError(
         'Failed to load plugins',
         'PLUGIN_LOAD_FAILED',
-        'INTERNAL',
-        'MEDIUM',
+        ErrorCategory.INTERNAL,
+        ErrorSeverity.MEDIUM,
         { cause: error as Error }
       ));
     }
@@ -295,12 +304,19 @@ export class TurboLoggerCore extends EventEmitter {
     };
 
     if (error) {
+      // BUG FIX: Use type assertion to access 'cause' property (ES2022+ feature)
+      const errorCause = (error as Error & { cause?: unknown }).cause;
+      // BUG FIX: Build error object conditionally to avoid spread type issues
       entry.error = {
         name: error.name,
         message: error.message,
-        ...(this.config.output.stackTrace && { stack: error.stack }),
-        ...(error.cause && { cause: error.cause }),
       };
+      if (this.config.output.stackTrace && error.stack) {
+        entry.error.stack = error.stack;
+      }
+      if (errorCause !== undefined) {
+        entry.error.cause = errorCause;
+      }
     }
 
     return entry;
@@ -360,12 +376,13 @@ export class TurboLoggerCore extends EventEmitter {
       }
     } catch (error) {
       // FIX BUG-031: Better error propagation
+      // BUG FIX: Use ErrorCategory and ErrorSeverity enums instead of string literals
       const logError = new TurboLoggerError(
         'Failed to process log entry',
         'LOG_PROCESSING_FAILED',
-        'INTERNAL',
-        'MEDIUM',
-        { cause: error as Error, entry }
+        ErrorCategory.INTERNAL,
+        ErrorSeverity.MEDIUM,
+        { cause: error as Error, context: { metadata: { entry } } }
       );
 
       // Emit error event for monitoring systems
@@ -395,14 +412,15 @@ export class TurboLoggerCore extends EventEmitter {
       if (transport.isHealthy()) {
         promises.push(
           transport.writeBatch(entries).catch(error => {
+            // BUG FIX: Use ErrorCategory and ErrorSeverity enums instead of string literals
             this.errorHandler.handle(new TurboLoggerError(
               `Transport ${transport.name} write failed`,
               'TRANSPORT_WRITE_FAILED',
-              'TRANSPORT',
-              'MEDIUM',
-              { 
+              ErrorCategory.TRANSPORT,
+              ErrorSeverity.MEDIUM,
+              {
                 cause: error as Error,
-                context: { transportName: transport.name }
+                context: { metadata: { transportName: transport.name } }
               }
             ));
           })
@@ -517,7 +535,8 @@ export class TurboLoggerCore extends EventEmitter {
   public async removePlugin(name: string): Promise<boolean> {
     const plugin = this.plugins.get(name);
     if (plugin) {
-      await plugin.destroy?.(this);
+      // BUG FIX: destroy() method takes no arguments per LoggerPlugin interface
+      await plugin.destroy?.();
       return this.plugins.delete(name);
     }
     return false;

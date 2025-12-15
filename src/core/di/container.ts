@@ -49,8 +49,9 @@ export class DIContainer {
     this.metadata.set(name, {
       name,
       lifecycle: definition.lifecycle,
-      dependencies: definition.dependencies,
-      tags: definition.tags,
+      // BUG FIX: Ensure dependencies and tags are never undefined
+      dependencies: definition.dependencies || [],
+      tags: definition.tags || [],
       created: new Date(),
       accessCount: 0,
     });
@@ -171,8 +172,10 @@ export class DIContainer {
 
     try {
       // Resolve dependencies
+      // BUG FIX: Handle possibly undefined dependencies array
+      const deps = definition.dependencies || [];
       const dependencies = await Promise.all(
-        definition.dependencies.map(dep => this.resolve(dep))
+        deps.map(dep => this.resolve(dep))
       );
 
       // FIX BUG-028: Validate dependency count matches factory expectations
